@@ -1,6 +1,7 @@
 package com.monochrome.ledger;
 
 import android.annotation.SuppressLint;
+import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.net.Uri;
@@ -14,13 +15,9 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.ProgressBar;
-import androidx.activity.OnBackPressedCallback;
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends Activity {
   private WebView web;
-  private SwipeRefreshLayout swipe;
   private ProgressBar progress;
 
   @Override
@@ -36,23 +33,9 @@ public class MainActivity extends AppCompatActivity {
 
     setContentView(R.layout.activity_main);
     web = findViewById(R.id.webview);
-    swipe = findViewById(R.id.swipe);
     progress = findViewById(R.id.progress);
     configureWebView();
-    swipe.setColorSchemeColors(0xFF141414);
-    swipe.setOnRefreshListener(() -> web.reload());
     web.loadUrl(url);
-
-    getOnBackPressedDispatcher()
-        .addCallback(
-            this,
-            new OnBackPressedCallback(true) {
-              @Override
-              public void handleOnBackPressed() {
-                if (web.canGoBack()) web.goBack();
-                else finish();
-              }
-            });
   }
 
   @SuppressLint("SetJavaScriptEnabled")
@@ -97,17 +80,13 @@ public class MainActivity extends AppCompatActivity {
           @Override
           public void onPageFinished(WebView view, String url) {
             progress.setVisibility(View.GONE);
-            swipe.setRefreshing(false);
             CookieManager.getInstance().flush();
           }
 
           @Override
           public void onReceivedError(
               WebView view, WebResourceRequest request, WebResourceError error) {
-            if (request.isForMainFrame()) {
-              swipe.setRefreshing(false);
-              progress.setVisibility(View.GONE);
-            }
+            if (request.isForMainFrame()) progress.setVisibility(View.GONE);
           }
         });
 
@@ -119,6 +98,12 @@ public class MainActivity extends AppCompatActivity {
             progress.setVisibility(newProgress >= 100 ? View.GONE : View.VISIBLE);
           }
         });
+  }
+
+  @Override
+  public void onBackPressed() {
+    if (web != null && web.canGoBack()) web.goBack();
+    else super.onBackPressed();
   }
 
   @Override
