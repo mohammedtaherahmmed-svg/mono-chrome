@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Mono Chrome</string>
+    <string name="eyebrow">MONO CHROME</string>
+    <string name="setup_title">دفتر الشركة</string>
+    <string name="setup_hint">الصق رابط التطبيق المنشور. الحسابات تبقى على السيرفر ويشوفها كل الموظفين.</string>
+    <string name="url_hint">https://…</string>
+    <string name="enter">دخول</string>
+    <string name="url_required">أدخل الرابط أولاً</string>
+</resources>

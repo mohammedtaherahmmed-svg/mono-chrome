@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/paper"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:padding="28dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:letterSpacing="0.28"
+        android:text="@string/eyebrow"
+        android:textAllCaps="true"
+        android:textColor="@color/muted"
+        android:textSize="11sp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/setup_title"
+        android:textColor="@color/ink"
+        android:textSize="28sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/setup_hint"
+        android:textColor="@color/muted"
+        android:textSize="15sp" />
+
+    <EditText
+        android:id="@+id/url_field"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:layout_marginTop="28dp"
+        android:background="@drawable/input_bg"
+        android:hint="@string/url_hint"
+        android:inputType="textUri"
+        android:paddingHorizontal="14dp"
+        android:textColor="@color/ink"
+        android:textColorHint="@color/muted"
+        android:textDirection="ltr"
+        android:textSize="15sp" />
+
+    <Button
+        android:id="@+id/enter_button"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:layout_marginTop="14dp"
+        android:backgroundTint="@color/ink"
+        android:text="@string/enter"
+        android:textColor="@color/paper"
+        android:textSize="16sp" />
+</LinearLayout>

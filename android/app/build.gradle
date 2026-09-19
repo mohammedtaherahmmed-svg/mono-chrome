@@ -1,0 +1,46 @@
+plugins {
+    id 'com.android.application'
+}
+
+def webUrl = (System.getenv("WEB_APP_URL") ?: "").trim()
+def escaped = webUrl.replace("\\", "\\\\").replace("\"", "\\\"")
+
+android {
+    namespace 'com.monochrome.ledger'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.monochrome.ledger"
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName "1.0"
+        resValue "string", "web_app_url", webUrl
+        buildConfigField "String", "WEB_APP_URL", "\"${escaped}\""
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+        }
+        debug {
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.webkit:webkit:1.12.1'
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+}

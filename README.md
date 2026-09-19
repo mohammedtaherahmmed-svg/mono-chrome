@@ -7,56 +7,30 @@
 - أي حركة تظهر عند باقي أعضاء الشركة خلال ثوانٍ
 - البيع يخصم من المخزون تلقائياً
 
-## التشغيل
+## تحميل الـ APK من GitHub
+
+كل دفع على `main` يشغّل GitHub Actions ويبني ملف أندرويد ويرفعه هنا:
+
+**[Releases → Mono Chrome — APK](https://github.com/mohammedtaherahmmed-svg/mono-chrome/releases/latest)**
+
+1. حمّل `MonoChrome.apk`
+2. على الموبايل اسمح بالتثبيت من مصدر غير معروف إن طُلب
+3. افتح التطبيق
+
+البناء اليدوي: **Actions → Build APK → Run workflow**.
+
+لو ظهر شاشة الرابط أول مرة، الصق رابط التطبيق المنشور ثم دخول. البيانات على السيرفر، فكل الموظفين يشوفوا نفس الأرقام.
+
+لتثبيت الرابط داخل الـ APK بدون شاشة: من الريبو **Settings → Secrets and variables → Actions → Variables** أضف `WEB_APP_URL`.
+
+## التشغيل للمطورين
 
 ```bash
 npm install
 npm run dev
 ```
 
-يفتح على المنفذ `8080`. بعد أول تسجيل دخول: أنشئ شركة كمدير، ثم ادعُ الفريق من شاشة **الفريق** بكود الدعوة.
-
-للنشر تحتاج قاعدة Postgres في `DATABASE_URL`. جداول الحسابات في `migrations/`.
-
-## تحويله إلى APK (أندرويد)
-
-التطبيق ويب + قاعدة بيانات. ملف الـ APK يكون غلاف يفتح نفس التطبيق على الموبايل، والبيانات تفضل مشتركة بين الموظفين.
-
-### الطريقة الأسهل — PWABuilder
-
-1. انشر التطبيق على رابط HTTPS ثابت.
-2. افتح [PWABuilder](https://www.pwabuilder.com) والصق الرابط.
-3. اختَر Android ونزّل الـ APK أو حزمة المتجر.
-
-### Capacitor (مشروع أندرويد في Android Studio)
-
-بعد ما يبقى فيه رابط منشور:
-
-```bash
-npm install @capacitor/core @capacitor/cli @capacitor/android
-npx cap init "Mono Chrome" com.monochrome.ledger --web-dir dist
-npx cap add android
-```
-
-في `capacitor.config.ts` خلّي التطبيق يفتح الرابط المنشور:
-
-```ts
-server: {
-  url: "https://YOUR-APP-URL",
-  cleartext: false,
-}
-```
-
-ثم:
-
-```bash
-npx cap sync android
-npx cap open android
-```
-
-من Android Studio: **Build → Build APK**.
-
-> الحسابات والمخزون والصلاحيات تشتغل على السيرفر. الـ APK واجهة للموبايل، مش نسخة منفصلة من البيانات.
+بعد أول تسجيل دخول: أنشئ شركة كمدير، ثم ادعُ الفريق من شاشة **الفريق** بكود الدعوة.
 
 ## الصلاحيات
 
