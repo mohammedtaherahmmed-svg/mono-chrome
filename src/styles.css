@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #edeae4;
+  --color-surface: #f7f5f1;
+  --color-card: #fffefb;
+  --color-ink: #141414;
+  --color-muted: #6f6f6a;
+  --color-subtle: #9a968e;
+  --color-line: #d9d4cb;
+  --color-line-strong: #c4beb3;
+  --color-accent: #141414;
+  --color-accent-fg: #f7f5f1;
+  --color-danger: #7a3532;
+  --color-paper: #f3f0ea;
+
+  --font-sans: "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+  --font-display: "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1.25rem;
+  --radius-xl: 1.75rem;
+
+  --shadow-card:
+    0px 0px 0px 1px rgba(20, 20, 20, 0.06),
+    0px 1px 2px -1px rgba(20, 20, 20, 0.06),
+    0px 2px 4px 0px rgba(20, 20, 20, 0.04);
+  --shadow-card-hover:
+    0px 0px 0px 1px rgba(20, 20, 20, 0.1),
+    0px 4px 12px -2px rgba(20, 20, 20, 0.08);
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html,
+  body,
+  #root {
+    min-height: 100%;
+    background: var(--color-bg);
+    color: var(--color-ink);
+  }
+
+  body {
+    font-family: var(--font-sans);
+    line-height: 1.5;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
