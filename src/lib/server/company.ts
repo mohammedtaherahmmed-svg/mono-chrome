@@ -3,6 +3,7 @@ import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql } from "@/lib/db";
 import { inviteCode, nid } from "@/lib/utils";
 import { findMembership, requireManager, requireMember } from "./access";
+import { recordAudit } from "./audit";
 
 export type CompanyInfo = {
   id: string;
@@ -51,6 +52,14 @@ export const createCompany = createServerFn({ method: "POST" })
       insert into company_members (id, company_id, user_id, role, display_name)
       values (${nid()}, ${id}, ${context.userId}, ${"manager"}, ${displayName})
     `;
+    await recordAudit(sql, {
+      companyId: id,
+      actorUserId: context.userId,
+      action: "create",
+      entity: "company",
+      entityId: id,
+      details: { name },
+    });
     return { id, name, inviteCode: code, role: "manager" };
   });
 
@@ -73,6 +82,13 @@ export const joinCompany = createServerFn({ method: "POST" })
       insert into company_members (id, company_id, user_id, role, display_name)
       values (${nid()}, ${company.id}, ${context.userId}, ${"viewer"}, ${displayName})
     `;
+    await recordAudit(sql, {
+      companyId: company.id,
+      actorUserId: context.userId,
+      action: "join",
+      entity: "company_member",
+      details: { displayName },
+    });
     return {
       id: company.id,
       name: company.name,
@@ -135,6 +151,14 @@ export const setMemberRole = createServerFn({ method: "POST" })
       returning id
     `;
     if (!updated[0]) throw new Error("العضو غير موجود");
+    await recordAudit(sql, {
+      companyId,
+      actorUserId: context.userId,
+      action: "role_change",
+      entity: "company_member",
+      entityId: data.memberId,
+      details: { role: data.role },
+    });
     return { ok: true as const };
   });
 
@@ -144,5 +168,12 @@ export const rotateInviteCode = createServerFn({ method: "POST" })
     const { sql, companyId } = await requireManager(context.userId);
     const code = inviteCode();
     await sql`update companies set invite_code = ${code} where id = ${companyId}`;
+    await recordAudit(sql, {
+      companyId,
+      actorUserId: context.userId,
+      action: "invite_rotate",
+      entity: "company",
+      entityId: companyId,
+    });
     return { inviteCode: code };
   });

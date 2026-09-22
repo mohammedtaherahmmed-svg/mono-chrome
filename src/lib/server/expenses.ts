@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { nid, num, roundMoney } from "@/lib/utils";
 import { requireManager, requireMember } from "./access";
+import { recordAudit } from "./audit";
 
 export type Expense = {
   id: string;
@@ -61,14 +62,16 @@ export const createExpense = createServerFn({ method: "POST" })
     const category = data.category.trim();
     if (!category) throw new Error("التصنيف مطلوب");
     if (!data.expenseDate) throw new Error("التاريخ مطلوب");
+    const id = nid();
     await sql`
       insert into expenses (
         id, company_id, category, amount, expense_date, description, payment_method, created_by
       ) values (
-        ${nid()}, ${companyId}, ${category}, ${amount}, ${data.expenseDate},
+        ${id}, ${companyId}, ${category}, ${amount}, ${data.expenseDate},
         ${data.description?.trim() || null}, ${data.paymentMethod?.trim() || "نقدي"}, ${userId}
       )
     `;
+    await recordAudit(sql, { companyId, actorUserId: userId, action: "create", entity: "expense", entityId: id, details: { amount, category } });
     return { ok: true as const };
   });
 
@@ -76,10 +79,11 @@ export const deleteExpense = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((d: { id: string }) => d)
   .handler(async ({ context, data }) => {
-    const { sql, companyId } = await requireManager(context.userId);
+    const { sql, companyId, userId } = await requireManager(context.userId);
     const deleted = await sql`
       delete from expenses where id = ${data.id} and company_id = ${companyId} returning id
     `;
     if (!deleted[0]) throw new Error("المصروف غير موجود");
+    await recordAudit(sql, { companyId, actorUserId: userId, action: "delete", entity: "expense", entityId: data.id });
     return { ok: true as const };
   });

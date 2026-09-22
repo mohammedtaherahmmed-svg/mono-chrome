@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { nid, num, roundMoney } from "@/lib/utils";
 import { requireManager, requireMember } from "./access";
+import { recordAudit } from "./audit";
 
 export type Collection = {
   id: string;
@@ -70,7 +71,7 @@ export const createCollection = createServerFn({ method: "POST" })
     if (amount <= 0) throw new Error("المبلغ يجب أن يكون أكبر من صفر");
     if (!data.collectedAt) throw new Error("تاريخ التحصيل مطلوب");
     let customerName = data.customerName.trim();
-    let saleId: string | null = data.saleId?.trim() || null;
+    const saleId: string | null = data.saleId?.trim() || null;
     if (saleId) {
       const sale = await sql<{ id: string; customer_name: string; total: unknown }>`
         select id, customer_name, total from sales
@@ -88,15 +89,17 @@ export const createCollection = createServerFn({ method: "POST" })
       }
     }
     if (!customerName) throw new Error("اسم العميل مطلوب");
+    const id = nid();
     await sql`
       insert into collections (
         id, company_id, sale_id, customer_name, amount, collected_at, method, notes, created_by
       ) values (
-        ${nid()}, ${companyId}, ${saleId}, ${customerName}, ${amount},
+        ${id}, ${companyId}, ${saleId}, ${customerName}, ${amount},
         ${data.collectedAt}, ${data.method?.trim() || "نقدي"},
         ${data.notes?.trim() || null}, ${userId}
       )
     `;
+    await recordAudit(sql, { companyId, actorUserId: userId, action: "create", entity: "collection", entityId: id });
     return { ok: true as const };
   });
 
@@ -104,10 +107,11 @@ export const deleteCollection = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((d: { id: string }) => d)
   .handler(async ({ context, data }) => {
-    const { sql, companyId } = await requireManager(context.userId);
+    const { sql, companyId, userId } = await requireManager(context.userId);
     const deleted = await sql`
       delete from collections where id = ${data.id} and company_id = ${companyId} returning id
     `;
     if (!deleted[0]) throw new Error("التحصيل غير موجود");
+    await recordAudit(sql, { companyId, actorUserId: userId, action: "delete", entity: "collection", entityId: data.id });
     return { ok: true as const };
   });

@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { nid, num } from "@/lib/utils";
 import { requireManager, requireMember } from "./access";
+import { recordAudit } from "./audit";
 
 export type Product = {
   id: string;
@@ -90,6 +91,7 @@ export const createProduct = createServerFn({ method: "POST" })
       returning id, name, sku, category, unit, cost_price, sale_price, stock_qty, notes,
                 created_at::text as created_at
     `;
+    await recordAudit(sql, { companyId, actorUserId: userId, action: "create", entity: "product", entityId: id, details: { name } });
     return mapProduct(rows[0]!);
   });
 
@@ -97,7 +99,7 @@ export const updateProduct = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((d: ProductInput & { id: string }) => d)
   .handler(async ({ context, data }): Promise<Product> => {
-    const { sql, companyId } = await requireManager(context.userId);
+    const { sql, companyId, userId } = await requireManager(context.userId);
     const name = data.name.trim();
     if (!name) throw new Error("اسم المنتج مطلوب");
     const rows = await sql<ProductRow>`
@@ -116,6 +118,7 @@ export const updateProduct = createServerFn({ method: "POST" })
                 created_at::text as created_at
     `;
     if (!rows[0]) throw new Error("المنتج غير موجود");
+    await recordAudit(sql, { companyId, actorUserId: userId, action: "update", entity: "product", entityId: data.id, details: { name } });
     return mapProduct(rows[0]);
   });
 
@@ -123,10 +126,11 @@ export const deleteProduct = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((d: { id: string }) => d)
   .handler(async ({ context, data }) => {
-    const { sql, companyId } = await requireManager(context.userId);
+    const { sql, companyId, userId } = await requireManager(context.userId);
     const deleted = await sql`
       delete from products where id = ${data.id} and company_id = ${companyId} returning id
     `;
     if (!deleted[0]) throw new Error("المنتج غير موجود");
+    await recordAudit(sql, { companyId, actorUserId: userId, action: "delete", entity: "product", entityId: data.id });
     return { ok: true as const };
   });

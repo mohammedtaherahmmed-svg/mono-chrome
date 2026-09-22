@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { nid, num, roundMoney } from "@/lib/utils";
 import { requireManager, requireMember } from "./access";
+import { recordAudit } from "./audit";
 
 export type PurchaseItem = {
   id: string;
@@ -174,6 +175,7 @@ export const createPurchase = createServerFn({ method: "POST" })
         where id = ${item.productId} and company_id = ${companyId}
       `;
     }
+    await recordAudit(sql, { companyId, actorUserId: userId, action: "create", entity: "purchase", entityId: purchaseId, details: { invoiceNumber } });
     return { id: purchaseId, invoiceNumber };
   });
 
@@ -181,7 +183,7 @@ export const updatePurchasePaid = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((d: { id: string; paidAmount: number }) => d)
   .handler(async ({ context, data }) => {
-    const { sql, companyId } = await requireManager(context.userId);
+    const { sql, companyId, userId } = await requireManager(context.userId);
     const paidAmount = Math.max(0, roundMoney(num(data.paidAmount)));
     const updated = await sql`
       update purchases set paid_amount = ${paidAmount}
@@ -189,6 +191,7 @@ export const updatePurchasePaid = createServerFn({ method: "POST" })
       returning id
     `;
     if (!updated[0]) throw new Error("فاتورة الشراء غير موجودة");
+    await recordAudit(sql, { companyId, actorUserId: userId, action: "update", entity: "purchase", entityId: data.id, details: { paidAmount } });
     return { ok: true as const };
   });
 
@@ -196,7 +199,7 @@ export const deletePurchase = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((d: { id: string }) => d)
   .handler(async ({ context, data }) => {
-    const { sql, companyId } = await requireManager(context.userId);
+    const { sql, companyId, userId } = await requireManager(context.userId);
     const items = await sql<{ product_id: string | null; qty: unknown; product_name: string }>`
       select pi.product_id, pi.qty, pi.product_name
       from purchase_items pi
@@ -228,5 +231,6 @@ export const deletePurchase = createServerFn({ method: "POST" })
         where id = ${item.product_id} and company_id = ${companyId}
       `;
     }
+    await recordAudit(sql, { companyId, actorUserId: userId, action: "delete", entity: "purchase", entityId: data.id });
     return { ok: true as const };
   });

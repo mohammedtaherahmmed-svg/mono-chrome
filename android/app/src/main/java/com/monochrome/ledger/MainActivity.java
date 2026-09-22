@@ -15,6 +15,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.ProgressBar;
+import android.widget.Toast;
 
 public class MainActivity extends Activity {
   private WebView web;
@@ -24,10 +25,9 @@ public class MainActivity extends Activity {
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
 
-    String url = Prefs.resolveUrl(this);
-    if (url.isEmpty()) {
-      startActivity(new Intent(this, SetupActivity.class));
-      finish();
+    String url = BuildConfig.WEB_APP_URL;
+    if (!isAllowedUrl(url)) {
+      Toast.makeText(this, "لم يتم ضبط رابط الخادم الآمن", Toast.LENGTH_LONG).show();
       return;
     }
 
@@ -42,7 +42,7 @@ public class MainActivity extends Activity {
   private void configureWebView() {
     CookieManager cookies = CookieManager.getInstance();
     cookies.setAcceptCookie(true);
-    cookies.setAcceptThirdPartyCookies(web, true);
+    cookies.setAcceptThirdPartyCookies(web, false);
 
     WebSettings s = web.getSettings();
     s.setJavaScriptEnabled(true);
@@ -54,15 +54,14 @@ public class MainActivity extends Activity {
     s.setBuiltInZoomControls(false);
     s.setDisplayZoomControls(false);
     s.setCacheMode(WebSettings.LOAD_DEFAULT);
-    s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+    s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
 
     web.setWebViewClient(
         new WebViewClient() {
           @Override
           public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
             Uri uri = request.getUrl();
-            String scheme = uri.getScheme() == null ? "" : uri.getScheme();
-            if (scheme.equals("http") || scheme.equals("https")) {
+            if (isAllowedUrl(uri.toString())) {
               return false;
             }
             try {
@@ -98,6 +97,15 @@ public class MainActivity extends Activity {
             progress.setVisibility(newProgress >= 100 ? View.GONE : View.VISIBLE);
           }
         });
+  }
+
+  private boolean isAllowedUrl(String rawUrl) {
+    if (rawUrl == null || rawUrl.isEmpty()) return false;
+    Uri uri = Uri.parse(rawUrl);
+    String host = uri.getHost();
+    return "https".equalsIgnoreCase(uri.getScheme())
+        && host != null
+        && host.equalsIgnoreCase(BuildConfig.WEB_APP_HOST);
   }
 
   @Override

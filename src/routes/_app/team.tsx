@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { errMessage } from "@/lib/errors";
 import { LIVE } from "@/lib/query";
 import { listMembers, rotateInviteCode, setMemberRole } from "@/lib/server/company";
+import { listAuditEvents } from "@/lib/server/audit";
 
 export const Route = createFileRoute("/_app/team")({
   component: TeamPage,
@@ -20,6 +21,7 @@ function TeamPage() {
   const canEdit = useCanEdit();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["members"], queryFn: () => listMembers(), ...LIVE });
+  const auditQ = useQuery({ queryKey: ["audit-events"], queryFn: () => listAuditEvents(), ...LIVE });
 
   const rotate = useMutation({
     mutationFn: () => rotateInviteCode(),
@@ -103,6 +105,31 @@ function TeamPage() {
           </ul>
         </div>
       )}
+      <article className="mt-4 overflow-hidden rounded-xl bg-card shadow-[var(--shadow-card)]">
+        <div className="border-b border-line px-4 py-3">
+          <h2 className="text-sm font-medium">سجل التغييرات</h2>
+          <p className="mt-1 text-xs text-muted">آخر 100 عملية محفوظة على الخادم</p>
+        </div>
+        {auditQ.isPending ? (
+          <Skeleton className="m-4 h-24 rounded-lg" />
+        ) : auditQ.isError ? (
+          <p className="p-4 text-sm text-muted">تعذر تحميل سجل التغييرات</p>
+        ) : (auditQ.data ?? []).length === 0 ? (
+          <p className="p-4 text-sm text-muted">لا توجد تغييرات مسجلة بعد</p>
+        ) : (
+          <ul className="divide-y divide-line">
+            {(auditQ.data ?? []).map((event) => (
+              <li key={event.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm">
+                <span>
+                  <strong>{event.action}</strong> — {event.entity}
+                  {event.entity_id ? ` (${event.entity_id.slice(0, 8)})` : ""}
+                </span>
+                <span className="text-xs text-muted">{event.created_at}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </article>
     </div>
   );
 }

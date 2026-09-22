@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { nid, num, roundMoney } from "@/lib/utils";
 import { requireManager, requireMember } from "./access";
+import { recordAudit } from "./audit";
 
 export type SaleItem = {
   id: string;
@@ -212,6 +213,7 @@ export const createSale = createServerFn({ method: "POST" })
           )
         `;
       }
+      await recordAudit(sql, { companyId, actorUserId: userId, action: "create", entity: "sale", entityId: saleId, details: { invoiceNumber, total } });
       return { id: saleId, invoiceNumber };
     } catch (err) {
       for (const item of applied.reverse()) {
@@ -229,7 +231,7 @@ export const deleteSale = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((d: { id: string }) => d)
   .handler(async ({ context, data }) => {
-    const { sql, companyId } = await requireManager(context.userId);
+    const { sql, companyId, userId } = await requireManager(context.userId);
     const linked = await sql<{ c: number }>`
       select count(*)::int as c from collections where sale_id = ${data.id}
     `;
@@ -254,5 +256,6 @@ export const deleteSale = createServerFn({ method: "POST" })
         where id = ${item.product_id} and company_id = ${companyId}
       `;
     }
+    await recordAudit(sql, { companyId, actorUserId: userId, action: "delete", entity: "sale", entityId: data.id });
     return { ok: true as const };
   });
