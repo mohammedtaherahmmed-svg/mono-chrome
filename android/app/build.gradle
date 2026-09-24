@@ -2,12 +2,6 @@ plugins {
     id 'com.android.application'
 }
 
-def webUrl = (System.getenv("WEB_APP_URL") ?: "").trim()
-if (webUrl && !webUrl.startsWith("https://")) {
-    throw new GradleException("WEB_APP_URL must use HTTPS")
-}
-def webHost = webUrl ? new URI(webUrl).host : ""
-def escaped = webUrl.replace("\\", "\\\\").replace("\"", "\\\"")
 def releaseKeystore = System.getenv("ANDROID_KEYSTORE_PATH")
 def hasReleaseSigning = releaseKeystore && System.getenv("ANDROID_KEYSTORE_PASSWORD") && System.getenv("ANDROID_KEY_ALIAS") && System.getenv("ANDROID_KEY_PASSWORD")
 
@@ -30,15 +24,8 @@ android {
         applicationId "com.monochrome.ledger"
         minSdk 26
         targetSdk 35
-        versionCode 2
-        versionName "1.1"
-        resValue "string", "web_app_url", webUrl
-        buildConfigField "String", "WEB_APP_URL", "\"${escaped}\""
-        buildConfigField "String", "WEB_APP_HOST", "\"${webHost ?: ""}\""
-    }
-
-    buildFeatures {
-        buildConfig true
+        versionCode 3
+        versionName "1.2"
     }
 
     buildTypes {

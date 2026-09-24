@@ -4,11 +4,6 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      web_app_url:
-        description: "رابط التطبيق المنشور (HTTPS)"
-        required: true
-        type: string
 
 permissions:
   contents: write
@@ -22,27 +17,23 @@ jobs:
     name: Android APK
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    if: github.event_name == 'workflow_dispatch' || vars.WEB_APP_URL != ''
     env:
-      WEB_APP_URL: ${{ github.event.inputs.web_app_url || vars.WEB_APP_URL }}
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate production configuration
+      - name: Optional production signing
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
-          case "$WEB_APP_URL" in https://*) ;; *) echo "WEB_APP_URL must use HTTPS" >&2; exit 1 ;; esac
           if [ -n "$KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
             echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/mono-chrome-release.jks"
             echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/mono-chrome-release.jks" >> "$GITHUB_ENV"
           else
-            echo "No production keystore secrets; signing the APK with the debug key."
+            echo "Signing with the debug key."
           fi
-
 
       - uses: actions/setup-java@v5
         with:
@@ -95,8 +86,8 @@ jobs:
 
             1. نزّل الملف من المرفقات تحت.
             2. على الموبايل: اسمح بالتثبيت من مصدر غير معروف إن طُلب.
-            3. افتح **Mono Chrome**.
+            3. افتح **Mono Chrome** — الدفتر يشتغل مباشرة من غير رابط نشر.
 
-            البيانات مشتركة بين الموظفين على السيرفر، والنسخة مرتبطة بنطاق HTTPS الرسمي.
+            البيانات محفوظة على نفس الموبايل.
           files: dist/MonoChrome.apk
           make_latest: true

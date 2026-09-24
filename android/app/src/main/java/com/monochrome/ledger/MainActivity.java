@@ -7,7 +7,6 @@ import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
-import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
@@ -15,35 +14,24 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.ProgressBar;
-import android.widget.Toast;
 
 public class MainActivity extends Activity {
+  private static final String APP_URL = "file:///android_asset/www/index.html";
   private WebView web;
   private ProgressBar progress;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
-
-    String url = BuildConfig.WEB_APP_URL;
-    if (!isAllowedUrl(url)) {
-      Toast.makeText(this, "لم يتم ضبط رابط الخادم الآمن", Toast.LENGTH_LONG).show();
-      return;
-    }
-
     setContentView(R.layout.activity_main);
     web = findViewById(R.id.webview);
     progress = findViewById(R.id.progress);
     configureWebView();
-    web.loadUrl(url);
+    web.loadUrl(APP_URL);
   }
 
-  @SuppressLint("SetJavaScriptEnabled")
+  @SuppressLint({"SetJavaScriptEnabled", "ObsoleteSdkInt"})
   private void configureWebView() {
-    CookieManager cookies = CookieManager.getInstance();
-    cookies.setAcceptCookie(true);
-    cookies.setAcceptThirdPartyCookies(web, false);
-
     WebSettings s = web.getSettings();
     s.setJavaScriptEnabled(true);
     s.setDomStorageEnabled(true);
@@ -53,15 +41,18 @@ public class MainActivity extends Activity {
     s.setSupportZoom(false);
     s.setBuiltInZoomControls(false);
     s.setDisplayZoomControls(false);
+    s.setAllowFileAccess(true);
+    s.setAllowContentAccess(true);
+    s.setAllowFileAccessFromFileURLs(true);
     s.setCacheMode(WebSettings.LOAD_DEFAULT);
-    s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
 
     web.setWebViewClient(
         new WebViewClient() {
           @Override
           public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
             Uri uri = request.getUrl();
-            if (isAllowedUrl(uri.toString())) {
+            String scheme = uri.getScheme() == null ? "" : uri.getScheme();
+            if (scheme.equals("file") || scheme.equals("https") || scheme.equals("http")) {
               return false;
             }
             try {
@@ -79,7 +70,6 @@ public class MainActivity extends Activity {
           @Override
           public void onPageFinished(WebView view, String url) {
             progress.setVisibility(View.GONE);
-            CookieManager.getInstance().flush();
           }
 
           @Override
@@ -97,15 +87,6 @@ public class MainActivity extends Activity {
             progress.setVisibility(newProgress >= 100 ? View.GONE : View.VISIBLE);
           }
         });
-  }
-
-  private boolean isAllowedUrl(String rawUrl) {
-    if (rawUrl == null || rawUrl.isEmpty()) return false;
-    Uri uri = Uri.parse(rawUrl);
-    String host = uri.getHost();
-    return "https".equalsIgnoreCase(uri.getScheme())
-        && host != null
-        && host.equalsIgnoreCase(BuildConfig.WEB_APP_HOST);
   }
 
   @Override
