@@ -7,6 +7,7 @@ import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
+import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
@@ -16,7 +17,8 @@ import android.webkit.WebViewClient;
 import android.widget.ProgressBar;
 
 public class MainActivity extends Activity {
-  private static final String APP_URL = "file:///android_asset/www/index.html";
+  private static final String APP_URL = "https://brook-meadow-aurora-sail.grok.me";
+  private static final String APP_HOST = "brook-meadow-aurora-sail.grok.me";
   private WebView web;
   private ProgressBar progress;
 
@@ -30,8 +32,12 @@ public class MainActivity extends Activity {
     web.loadUrl(APP_URL);
   }
 
-  @SuppressLint({"SetJavaScriptEnabled", "ObsoleteSdkInt"})
+  @SuppressLint("SetJavaScriptEnabled")
   private void configureWebView() {
+    CookieManager cookies = CookieManager.getInstance();
+    cookies.setAcceptCookie(true);
+    cookies.setAcceptThirdPartyCookies(web, true);
+
     WebSettings s = web.getSettings();
     s.setJavaScriptEnabled(true);
     s.setDomStorageEnabled(true);
@@ -41,20 +47,15 @@ public class MainActivity extends Activity {
     s.setSupportZoom(false);
     s.setBuiltInZoomControls(false);
     s.setDisplayZoomControls(false);
-    s.setAllowFileAccess(true);
-    s.setAllowContentAccess(true);
-    s.setAllowFileAccessFromFileURLs(true);
     s.setCacheMode(WebSettings.LOAD_DEFAULT);
+    s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
 
     web.setWebViewClient(
         new WebViewClient() {
           @Override
           public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
             Uri uri = request.getUrl();
-            String scheme = uri.getScheme() == null ? "" : uri.getScheme();
-            if (scheme.equals("file") || scheme.equals("https") || scheme.equals("http")) {
-              return false;
-            }
+            if (isAllowed(uri)) return false;
             try {
               startActivity(new Intent(Intent.ACTION_VIEW, uri));
             } catch (Exception ignored) {
@@ -70,6 +71,7 @@ public class MainActivity extends Activity {
           @Override
           public void onPageFinished(WebView view, String url) {
             progress.setVisibility(View.GONE);
+            CookieManager.getInstance().flush();
           }
 
           @Override
@@ -87,6 +89,18 @@ public class MainActivity extends Activity {
             progress.setVisibility(newProgress >= 100 ? View.GONE : View.VISIBLE);
           }
         });
+  }
+
+  private boolean isAllowed(Uri uri) {
+    if (uri == null || !"https".equalsIgnoreCase(uri.getScheme())) return false;
+    String host = uri.getHost();
+    if (host == null) return false;
+    host = host.toLowerCase();
+    return host.equals(APP_HOST)
+        || host.equals("grok.com")
+        || host.endsWith(".grok.com")
+        || host.equals("x.ai")
+        || host.endsWith(".x.ai");
   }
 
   @Override
