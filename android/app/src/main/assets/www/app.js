@@ -1,4 +1,3 @@
-const KEY = "mono-chrome-ledger-v1";
 const PAGES = [
   ["home", "الرئيسية"],
   ["products", "المنتجات"],
@@ -7,25 +6,24 @@ const PAGES = [
   ["more", "المزيد"],
 ];
 
-function nid() {
-  return crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random();
-}
+const sbUrl = () => (window.MC && window.MC.url ? window.MC.url.replace(/\/$/, "") : "");
+const sbAnon = () => (window.MC && window.MC.anon) || "";
+const configured = () => Boolean(sbUrl() && sbAnon());
 
+function nid() {
+  return crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2);
+}
 function today() {
   const d = new Date();
   const z = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
 }
-
 function money(n) {
-  const v = Number(n) || 0;
-  return `${v.toLocaleString("en-EG", { maximumFractionDigits: 2 })} ج.م`;
+  return `${(Number(n) || 0).toLocaleString("en-EG", { maximumFractionDigits: 2 })} ج.م`;
 }
-
 function round(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
-
 function esc(s) {
   return String(s ?? "")
     .replace(/&/g, "&")
@@ -33,105 +31,294 @@ function esc(s) {
     .replace(/>/g, ">")
     .replace(/"/g, """);
 }
-
-function load() {
-  try {
-    return JSON.parse(localStorage.getItem(KEY) || "null");
-  } catch {
-    return null;
-  }
+function num(v) {
+  const n = parseFloat(String(v ?? 0));
+  return Number.isFinite(n) ? n : 0;
 }
 
-function blank() {
-  return {
-    companyName: "",
-    products: [],
-    sales: [],
-    purchases: [],
-    collections: [],
-    expenses: [],
-    seqSale: 1,
-    seqPurchase: 1,
-  };
+let token = localStorage.getItem("mc-token") || "";
+let userId = localStorage.getItem("mc-uid") || "";
+let company = null;
+try {
+  company = JSON.parse(localStorage.getItem("mc-company") || "null");
+} catch {
+  company = null;
 }
 
-let db = Object.assign(blank(), load() || {});
 let page = "home";
 let period = "month";
 let modal = null;
+let errMsg = "";
+let loading = false;
+const db = {
+  products: [],
+  sales: [],
+  saleItems: [],
+  purchases: [],
+  purchaseItems: [],
+  collections: [],
+  expenses: [],
+  members: [],
+};
 
-function save() {
-  localStorage.setItem(KEY, JSON.stringify(db));
+function canEdit() {
+  return company && company.role === "manager";
+}
+
+function setCompany(c) {
+  company = c;
+  if (c) localStorage.setItem("mc-company", JSON.stringify(c));
+  else localStorage.removeItem("mc-company");
+}
+
+function setSession(t, uid) {
+  token = t;
+  userId = uid;
+  if (t) localStorage.setItem("mc-token", t);
+  else localStorage.removeItem("mc-token");
+  if (uid) localStorage.setItem("mc-uid", uid);
+  else localStorage.removeItem("mc-uid");
+}
+
+function deviceCreds() {
+  let c = null;
+  try {
+    c = JSON.parse(localStorage.getItem("mc-creds") || "null");
+  } catch {
+    c = null;
+  }
+  if (!c) {
+    const id = nid().replace(/-/g, "");
+    c = { email: `${id}@mono-chrome.app`, password: `${nid()}Aa1!` };
+    localStorage.setItem("mc-creds", JSON.stringify(c));
+  }
+  return c;
+}
+
+async function authFetch(path, body) {
+  const res = await fetch(`${sbUrl()}/auth/v1/${path}`, {
+    method: "POST",
+    headers: { apikey: sbAnon(), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error_description || data.msg || data.error || "فشل الدخول");
+  return data;
+}
+
+async function ensureSession() {
+  if (token && userId) return;
+  const creds = deviceCreds();
+  try {
+    const data = await authFetch("token?grant_type=password", {
+      email: creds.email,
+      password: creds.password,
+    });
+    setSession(data.access_token, data.user.id);
+    return;
+  } catch {
+    /* try signup */
+  }
+  const signed = await authFetch("signup", {
+    email: creds.email,
+    password: creds.password,
+  });
+  if (signed.access_token && signed.user) {
+    setSession(signed.access_token, signed.user.id);
+    return;
+  }
+  const data = await authFetch("token?grant_type=password", {
+    email: creds.email,
+    password: creds.password,
+  });
+  setSession(data.access_token, data.user.id);
+}
+
+async function rest(path, { method = "GET", body, query } = {}) {
+  let url = `${sbUrl()}/rest/v1/${path}`;
+  if (query) url += query.startsWith("?") ? query : `?${query}`;
+  const res = await fetch(url, {
+    method,
+    headers: {
+      apikey: sbAnon(),
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      Prefer: "return=representation",
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+  if (!res.ok) {
+    const msg = (data && (data.message || data.error || data.hint)) || text || "خطأ في السيرفر";
+    throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+  }
+  return data;
+}
+
+async function rpc(name, args) {
+  return rest(`rpc/${name}`, { method: "POST", body: args });
 }
 
 function inPeriod(iso) {
   if (!iso) return false;
-  const d = iso.slice(0, 10);
+  const d = String(iso).slice(0, 10);
   const now = new Date();
   const from = new Date(now);
   if (period === "week") from.setDate(now.getDate() - 6);
   else if (period === "month") from.setDate(1);
   else from.setMonth(0, 1);
-  const a = d;
   const b = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, "0")}-${String(from.getDate()).padStart(2, "0")}`;
-  const c = today();
-  return a >= b && a <= c;
-}
-
-function cashNet() {
-  const coll = db.collections.reduce((s, x) => s + Number(x.amount), 0);
-  const paid = db.purchases.reduce((s, x) => s + Number(x.paidAmount), 0);
-  const exp = db.expenses.reduce((s, x) => s + Number(x.amount), 0);
-  return round(coll - paid - exp);
-}
-
-function productById(id) {
-  return db.products.find((p) => p.id === id);
+  return d >= b && d <= today();
 }
 
 function saleCollected(saleId) {
-  return round(
-    db.collections.filter((c) => c.saleId === saleId).reduce((s, x) => s + Number(x.amount), 0),
-  );
+  return round(db.collections.filter((c) => c.sale_id === saleId).reduce((s, x) => s + num(x.amount), 0));
+}
+function cashNet() {
+  const coll = db.collections.reduce((s, x) => s + num(x.amount), 0);
+  const paid = db.purchases.reduce((s, x) => s + num(x.paid_amount), 0);
+  const exp = db.expenses.reduce((s, x) => s + num(x.amount), 0);
+  return round(coll - paid - exp);
 }
 
-function audit(action, entity, details) {
-  db.audit = db.audit || [];
-  db.audit.unshift({ id: nid(), action, entity, details, at: new Date().toISOString() });
-  db.audit = db.audit.slice(0, 100);
+async function loadAll() {
+  if (!company) return;
+  const cid = company.id;
+  const [products, sales, saleItems, purchases, purchaseItems, collections, expenses, members] =
+    await Promise.all([
+      rest("products", { query: `select=*&company_id=eq.${cid}&order=name.asc` }),
+      rest("sales", { query: `select=*&company_id=eq.${cid}&order=sale_date.desc` }),
+      rest("sale_items", { query: "select=*" }),
+      rest("purchases", { query: `select=*&company_id=eq.${cid}&order=purchase_date.desc` }),
+      rest("purchase_items", { query: "select=*" }),
+      rest("collections", { query: `select=*&company_id=eq.${cid}&order=collected_at.desc` }),
+      rest("expenses", { query: `select=*&company_id=eq.${cid}&order=expense_date.desc` }),
+      rest("company_members", { query: `select=*&company_id=eq.${cid}&order=created_at.asc` }),
+    ]);
+  db.products = products || [];
+  db.sales = sales || [];
+  db.saleItems = saleItems || [];
+  db.purchases = purchases || [];
+  db.purchaseItems = purchaseItems || [];
+  db.collections = collections || [];
+  db.expenses = expenses || [];
+  db.members = members || [];
 }
 
-function openModal(html) {
-  modal = html;
+async function loadCompany() {
+  const rows = await rest("company_members", {
+    query: `select=company_id,role,display_name&user_id=eq.${userId}`,
+  });
+  const m = rows && rows[0];
+  if (!m) {
+    setCompany(null);
+    return;
+  }
+  const cos = await rest("companies", { query: `select=id,name,invite_code&id=eq.${m.company_id}` });
+  const c = cos && cos[0];
+  if (!c) {
+    setCompany(null);
+    return;
+  }
+  setCompany({ id: c.id, name: c.name, inviteCode: c.invite_code, role: m.role });
+}
+
+function toast(msg) {
+  errMsg = msg || "";
   render();
 }
 
-function closeModal() {
-  modal = null;
+async function boot() {
+  if (!configured()) {
+    render();
+    return;
+  }
+  loading = true;
+  errMsg = "";
+  render();
+  try {
+    await ensureSession();
+    await loadCompany();
+    if (company) await loadAll();
+  } catch (e) {
+    errMsg = e.message || String(e);
+  }
+  loading = false;
   render();
 }
 
 function render() {
   const root = document.getElementById("app");
-  if (!db.companyName) {
+  if (!configured()) {
+    root.innerHTML = `
+      <div class="boot">
+        <p class="eyebrow">MONO CHROME</p>
+        <h1>ربط السيرفر</h1>
+        <p class="lede">المدير يعمل مشروع مجاني على Supabase مرة واحدة، ويبعت رابط المشروع ومفتاح anon في الشات عشان نثبّتهم في التطبيق.</p>
+        <p class="lede">بعد الربط: أنشئ شركة، وابعت كود الدعوة للموظفين. أي منتج أو مبيعة تظهر عند الكل.</p>
+      </div>`;
+    return;
+  }
+  if (loading && !company) {
+    root.innerHTML = `<div class="boot"><p class="eyebrow">MONO CHROME</p><h1>جاري الاتصال</h1></div>`;
+    return;
+  }
+  if (!company) {
     root.innerHTML = `
       <div class="boot">
         <p class="eyebrow">MONO CHROME</p>
         <h1>دفتر الشركة</h1>
-        <p class="lede">بدون رابط نشر. الحسابات تتحفظ على هذا الموبايل.</p>
-        <form id="boot-form">
-          <div class="field">
-            <label>اسم الشركة</label>
-            <input name="name" required placeholder="Mono Chrome" />
-          </div>
-          <button class="btn" type="submit">ابدأ</button>
+        <p class="lede">البيانات على السيرفر. المدير ينشئ الشركة، والموظف يدخل بكود الدعوة.</p>
+        ${errMsg ? `<p class="warn">${esc(errMsg)}</p>` : ""}
+        <form id="create-form">
+          <div class="field"><label>اسم الشركة</label><input name="name" required placeholder="Mono Chrome" /></div>
+          <div class="field"><label>اسمك</label><input name="display" value="مدير" /></div>
+          <button class="btn" type="submit">إنشاء شركة (مدير)</button>
+        </form>
+        <p class="lede" style="margin-top:24px">عندك كود دعوة؟</p>
+        <form id="join-form">
+          <div class="field"><label>كود الدعوة</label><input name="code" required placeholder="ABC123" /></div>
+          <div class="field"><label>اسمك</label><input name="display" value="موظف" /></div>
+          <button class="btn ghost" type="submit">انضمام</button>
         </form>
       </div>`;
-    document.getElementById("boot-form").onsubmit = (e) => {
+    document.getElementById("create-form").onsubmit = async (e) => {
       e.preventDefault();
-      db.companyName = e.target.name.value.trim() || "Mono Chrome";
-      save();
-      render();
+      try {
+        await ensureSession();
+        const c = await rpc("create_company", {
+          p_name: e.target.name.value,
+          p_display: e.target.display.value,
+        });
+        setCompany(c);
+        await loadAll();
+        errMsg = "";
+        render();
+      } catch (err) {
+        toast(err.message);
+      }
+    };
+    document.getElementById("join-form").onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        await ensureSession();
+        const c = await rpc("join_company", {
+          p_code: e.target.code.value,
+          p_display: e.target.display.value,
+        });
+        setCompany(c);
+        await loadAll();
+        errMsg = "";
+        render();
+      } catch (err) {
+        toast(err.message);
+      }
     };
     return;
   }
@@ -140,9 +327,9 @@ function render() {
     <header class="topbar">
       <div>
         <p class="eyebrow">MONO CHROME</p>
-        <p class="company">${esc(db.companyName)}</p>
+        <p class="company">${esc(company.name)}</p>
       </div>
-      <span class="badge">مدير</span>
+      <span class="badge">${canEdit() ? "مدير" : "مشاهد"}</span>
     </header>
     <main class="page">${pageHtml()}</main>
     <nav class="nav">
@@ -150,7 +337,6 @@ function render() {
     </nav>
     ${modal ? `<div class="modal" id="modal">${modal}</div>` : ""}
   `;
-
   root.querySelectorAll(".nav button").forEach((b) => {
     b.classList.toggle("active", b.dataset.page === navId());
     b.onclick = () => {
@@ -159,7 +345,6 @@ function render() {
       render();
     };
   });
-
   bindPage();
   if (modal) bindModal();
 }
@@ -180,30 +365,25 @@ function pageHtml() {
 }
 
 function homeHtml() {
-  const coll = round(db.collections.filter((x) => inPeriod(x.date)).reduce((s, x) => s + Number(x.amount), 0));
-  const sales = round(db.sales.filter((x) => inPeriod(x.date)).reduce((s, x) => s + Number(x.total), 0));
-  const paid = round(db.purchases.filter((x) => inPeriod(x.date)).reduce((s, x) => s + Number(x.paidAmount), 0));
-  const exp = round(db.expenses.filter((x) => inPeriod(x.date)).reduce((s, x) => s + Number(x.amount), 0));
-  const recv = round(
-    db.sales.reduce((s, x) => s + Math.max(0, Number(x.total) - saleCollected(x.id)), 0),
-  );
-  const stock = round(db.products.reduce((s, p) => s + Number(p.stock) * Number(p.cost), 0));
+  const coll = round(db.collections.filter((x) => inPeriod(x.collected_at)).reduce((s, x) => s + num(x.amount), 0));
+  const sales = round(db.sales.filter((x) => inPeriod(x.sale_date)).reduce((s, x) => s + num(x.total), 0));
+  const paid = round(db.purchases.filter((x) => inPeriod(x.purchase_date)).reduce((s, x) => s + num(x.paid_amount), 0));
+  const exp = round(db.expenses.filter((x) => inPeriod(x.expense_date)).reduce((s, x) => s + num(x.amount), 0));
+  const recv = round(db.sales.reduce((s, x) => s + Math.max(0, num(x.total) - saleCollected(x.id)), 0));
+  const stock = round(db.products.reduce((s, p) => s + num(p.stock_qty) * num(p.cost_price), 0));
   const days = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    const v = db.collections.filter((x) => x.date === iso).reduce((s, x) => s + Number(x.amount), 0);
-    days.push({ iso, v, label: String(d.getDate()) });
+    const v = db.collections.filter((x) => String(x.collected_at).slice(0, 10) === iso).reduce((s, x) => s + num(x.amount), 0);
+    days.push({ v, label: String(d.getDate()) });
   }
   const max = Math.max(1, ...days.map((d) => d.v));
   return `
-    <div class="toolbar">
-      <div>
-        <h1>صافي الصندوق</h1>
-        <p class="lede">تحصيلات − سداد مشتريات − مصاريف</p>
-      </div>
-    </div>
+    <h1>صافي الصندوق</h1>
+    <p class="lede">تحصيلات − سداد مشتريات − مصاريف · متزامن مع السيرفر</p>
+    ${errMsg ? `<p class="warn">${esc(errMsg)}</p>` : ""}
     <div class="period">
       <button data-period="week" class="${period === "week" ? "on" : ""}">أسبوع</button>
       <button data-period="month" class="${period === "month" ? "on" : ""}">شهر</button>
@@ -212,7 +392,7 @@ function homeHtml() {
     <section class="hero" style="margin-top:14px">
       <p class="label">صافي الصندوق الآن</p>
       <p class="value">${money(cashNet())}</p>
-      <p class="hint">الجنيه المصري · محفوظ على الجهاز</p>
+      <p class="hint">الجنيه المصري</p>
     </section>
     <div class="kpis">
       <div class="kpi"><p class="label">تحصيلات الفترة</p><p class="value">${money(coll)}</p></div>
@@ -224,35 +404,25 @@ function homeHtml() {
     </div>
     <article class="card">
       <h2>تحصيلات آخر 7 أيام</h2>
-      <div class="bars">${days
-        .map(
-          (d) =>
-            `<div class="bar"><span style="height:${Math.max(8, (d.v / max) * 100)}%"></span><small>${d.label}</small></div>`,
-        )
-        .join("")}</div>
+      <div class="bars">${days.map((d) => `<div class="bar"><span style="height:${Math.max(8, (d.v / max) * 100)}%"></span><small>${d.label}</small></div>`).join("")}</div>
     </article>
   `;
 }
 
+function addBtn(id, label) {
+  return canEdit() ? `<button class="btn" id="${id}">${label}</button>` : "";
+}
+
 function productsHtml() {
   return `
-    <div class="toolbar">
-      <h1>المنتجات</h1>
-      <button class="btn" id="add-product">إضافة</button>
-    </div>
+    <div class="toolbar"><h1>المنتجات</h1>${addBtn("add-product", "إضافة")}</div>
     ${
       db.products.length
         ? `<ul class="list">${db.products
             .map(
               (p) => `<li>
-                <div>
-                  <strong>${esc(p.name)}</strong>
-                  <p class="meta">${esc(p.sku || "بدون كود")} · مخزون ${p.stock} ${esc(p.unit || "قطعة")}</p>
-                </div>
-                <div class="row-actions">
-                  <strong>${money(p.price)}</strong>
-                  <button class="linkish" data-del-product="${p.id}">حذف</button>
-                </div>
+                <div><strong>${esc(p.name)}</strong><p class="meta">${esc(p.sku || "بدون كود")} · مخزون ${num(p.stock_qty)} ${esc(p.unit || "قطعة")}</p></div>
+                <div class="row-actions"><strong>${money(p.sale_price)}</strong>${canEdit() ? `<button class="linkish" data-del-product="${p.id}">حذف</button>` : ""}</div>
               </li>`,
             )
             .join("")}</ul>`
@@ -263,25 +433,15 @@ function productsHtml() {
 
 function salesHtml() {
   return `
-    <div class="toolbar">
-      <h1>المبيعات</h1>
-      <button class="btn" id="add-sale">فاتورة</button>
-    </div>
+    <div class="toolbar"><h1>المبيعات</h1>${addBtn("add-sale", "فاتورة")}</div>
     ${
       db.sales.length
         ? `<ul class="list">${db.sales
             .map((s) => {
-              const got = saleCollected(s.id);
-              const left = round(s.total - got);
+              const left = round(num(s.total) - saleCollected(s.id));
               return `<li>
-                <div>
-                  <strong>${esc(s.invoice)} · ${esc(s.customer)}</strong>
-                  <p class="meta">${esc(s.date)} · ${left > 0 ? "متبقي " + money(left) : "محصّلة"}</p>
-                </div>
-                <div class="row-actions">
-                  <strong>${money(s.total)}</strong>
-                  <button class="linkish" data-del-sale="${s.id}">حذف</button>
-                </div>
+                <div><strong>${esc(s.invoice_number)} · ${esc(s.customer_name)}</strong><p class="meta">${esc(s.sale_date)} · ${left > 0 ? "متبقي " + money(left) : "محصّلة"}</p></div>
+                <div class="row-actions"><strong>${money(s.total)}</strong>${canEdit() ? `<button class="linkish" data-del-sale="${s.id}">حذف</button>` : ""}</div>
               </li>`;
             })
             .join("")}</ul>`
@@ -292,23 +452,14 @@ function salesHtml() {
 
 function purchasesHtml() {
   return `
-    <div class="toolbar">
-      <h1>المشتريات</h1>
-      <button class="btn" id="add-purchase">فاتورة</button>
-    </div>
+    <div class="toolbar"><h1>المشتريات</h1>${addBtn("add-purchase", "فاتورة")}</div>
     ${
       db.purchases.length
         ? `<ul class="list">${db.purchases
             .map(
               (p) => `<li>
-                <div>
-                  <strong>${esc(p.invoice)} · ${esc(p.supplier)}</strong>
-                  <p class="meta">${esc(p.date)} · مدفوع ${money(p.paidAmount)}</p>
-                </div>
-                <div class="row-actions">
-                  <strong>${money(p.total)}</strong>
-                  <button class="linkish" data-del-purchase="${p.id}">حذف</button>
-                </div>
+                <div><strong>${esc(p.invoice_number)} · ${esc(p.supplier_name)}</strong><p class="meta">${esc(p.purchase_date)} · مدفوع ${money(p.paid_amount)}</p></div>
+                <div class="row-actions"><strong>${money(p.total)}</strong>${canEdit() ? `<button class="linkish" data-del-purchase="${p.id}">حذف</button>` : ""}</div>
               </li>`,
             )
             .join("")}</ul>`
@@ -319,23 +470,14 @@ function purchasesHtml() {
 
 function collectionsHtml() {
   return `
-    <div class="toolbar">
-      <h1>التحصيلات</h1>
-      <button class="btn" id="add-collection">تحصيل</button>
-    </div>
+    <div class="toolbar"><h1>التحصيلات</h1>${addBtn("add-collection", "تحصيل")}</div>
     ${
       db.collections.length
         ? `<ul class="list">${db.collections
             .map(
               (c) => `<li>
-                <div>
-                  <strong>${esc(c.customer)}</strong>
-                  <p class="meta">${esc(c.date)}</p>
-                </div>
-                <div class="row-actions">
-                  <strong>${money(c.amount)}</strong>
-                  <button class="linkish" data-del-collection="${c.id}">حذف</button>
-                </div>
+                <div><strong>${esc(c.customer_name)}</strong><p class="meta">${esc(c.collected_at)}</p></div>
+                <div class="row-actions"><strong>${money(c.amount)}</strong>${canEdit() ? `<button class="linkish" data-del-collection="${c.id}">حذف</button>` : ""}</div>
               </li>`,
             )
             .join("")}</ul>`
@@ -346,23 +488,14 @@ function collectionsHtml() {
 
 function expensesHtml() {
   return `
-    <div class="toolbar">
-      <h1>المصاريف</h1>
-      <button class="btn" id="add-expense">مصروف</button>
-    </div>
+    <div class="toolbar"><h1>المصاريف</h1>${addBtn("add-expense", "مصروف")}</div>
     ${
       db.expenses.length
         ? `<ul class="list">${db.expenses
             .map(
               (e) => `<li>
-                <div>
-                  <strong>${esc(e.category)}</strong>
-                  <p class="meta">${esc(e.date)} · ${esc(e.note || "")}</p>
-                </div>
-                <div class="row-actions">
-                  <strong>${money(e.amount)}</strong>
-                  <button class="linkish" data-del-expense="${e.id}">حذف</button>
-                </div>
+                <div><strong>${esc(e.category)}</strong><p class="meta">${esc(e.expense_date)} · ${esc(e.description || "")}</p></div>
+                <div class="row-actions"><strong>${money(e.amount)}</strong>${canEdit() ? `<button class="linkish" data-del-expense="${e.id}">حذف</button>` : ""}</div>
               </li>`,
             )
             .join("")}</ul>`
@@ -374,14 +507,21 @@ function expensesHtml() {
 function moreHtml() {
   return `
     <h1>المزيد</h1>
-    <p class="lede">التحصيلات والمصاريف وسجل الجهاز</p>
     <ul class="list">
       <li><button class="linkish" data-go="collections" style="color:inherit;font-size:16px;font-weight:600">التحصيلات</button></li>
       <li><button class="linkish" data-go="expenses" style="color:inherit;font-size:16px;font-weight:600">المصاريف</button></li>
     </ul>
     <article class="card">
-      <h2>عن النسخة</h2>
-      <p class="lede" style="margin:0">التطبيق شغال على الموبايل مباشرة من غير رابط نشر. الأرقام محفوظة على هذا الجهاز. لو فتحت نفس التطبيق على موبايل تاني هتبدأ دفتر مستقل.</p>
+      <h2>كود الدعوة</h2>
+      <p class="value" style="font-size:28px;margin:8px 0">${esc(company.inviteCode || "")}</p>
+      <p class="lede">ابعت الكود للموظف. يسجّل دخول وينضم كمشاهد.</p>
+      ${canEdit() ? `<button class="btn ghost" id="rotate-code">تغيير الكود</button>` : ""}
+    </article>
+    <article class="card">
+      <h2>الفريق</h2>
+      <ul class="list" style="margin:0;box-shadow:none">${db.members
+        .map((m) => `<li><span>${esc(m.display_name || m.user_id.slice(0, 8))}</span><span class="meta">${m.role === "manager" ? "مدير" : "مشاهد"}</span></li>`)
+        .join("")}</ul>
     </article>
   `;
 }
@@ -409,69 +549,115 @@ function bindPage() {
   if (addC) addC.onclick = collectionModal;
   const addE = document.getElementById("add-expense");
   if (addE) addE.onclick = expenseModal;
-
-  document.querySelectorAll("[data-del-product]").forEach((b) => {
-    b.onclick = () => {
-      db.products = db.products.filter((p) => p.id !== b.dataset.delProduct);
-      save();
-      render();
+  const rot = document.getElementById("rotate-code");
+  if (rot)
+    rot.onclick = async () => {
+      try {
+        const code = nid().replace(/-/g, "").slice(0, 6).toUpperCase();
+        await rest("companies", { method: "PATCH", query: `id=eq.${company.id}`, body: { invite_code: code } });
+        company.inviteCode = code;
+        setCompany(company);
+        render();
+      } catch (e) {
+        toast(e.message);
+      }
     };
+  document.querySelectorAll("[data-del-product]").forEach((b) => {
+    b.onclick = () => del("products", b.dataset.delProduct);
   });
   document.querySelectorAll("[data-del-sale]").forEach((b) => {
-    b.onclick = () => deleteSale(b.dataset.delSale);
+    b.onclick = () => delSale(b.dataset.delSale);
   });
   document.querySelectorAll("[data-del-purchase]").forEach((b) => {
-    b.onclick = () => deletePurchase(b.dataset.delPurchase);
+    b.onclick = () => delPurchase(b.dataset.delPurchase);
   });
   document.querySelectorAll("[data-del-collection]").forEach((b) => {
-    b.onclick = () => {
-      db.collections = db.collections.filter((c) => c.id !== b.dataset.delCollection);
-      save();
-      render();
-    };
+    b.onclick = () => del("collections", b.dataset.delCollection);
   });
   document.querySelectorAll("[data-del-expense]").forEach((b) => {
-    b.onclick = () => {
-      db.expenses = db.expenses.filter((e) => e.id !== b.dataset.delExpense);
-      save();
-      render();
-    };
+    b.onclick = () => del("expenses", b.dataset.delExpense);
   });
+}
+
+async function del(table, id) {
+  try {
+    await rest(table, { method: "DELETE", query: `id=eq.${id}` });
+    await loadAll();
+    render();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+async function delSale(id) {
+  const items = db.saleItems.filter((i) => i.sale_id === id);
+  try {
+    for (const it of items) {
+      const p = db.products.find((x) => x.id === it.product_id);
+      if (p) {
+        await rest("products", {
+          method: "PATCH",
+          query: `id=eq.${p.id}`,
+          body: { stock_qty: round(num(p.stock_qty) + num(it.qty)) },
+        });
+      }
+    }
+    await rest("sale_items", { method: "DELETE", query: `sale_id=eq.${id}` });
+    await rest("collections", { method: "DELETE", query: `sale_id=eq.${id}` });
+    await rest("sales", { method: "DELETE", query: `id=eq.${id}` });
+    await loadAll();
+    render();
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+async function delPurchase(id) {
+  const items = db.purchaseItems.filter((i) => i.purchase_id === id);
+  try {
+    for (const it of items) {
+      const p = db.products.find((x) => x.id === it.product_id);
+      if (p) {
+        await rest("products", {
+          method: "PATCH",
+          query: `id=eq.${p.id}`,
+          body: { stock_qty: round(Math.max(0, num(p.stock_qty) - num(it.qty))) },
+        });
+      }
+    }
+    await rest("purchase_items", { method: "DELETE", query: `purchase_id=eq.${id}` });
+    await rest("purchases", { method: "DELETE", query: `id=eq.${id}` });
+    await loadAll();
+    render();
+  } catch (e) {
+    toast(e.message);
+  }
 }
 
 function sheet(title, body) {
-  openModal(`
-    <div class="sheet">
-      <div class="toolbar">
-        <h1 style="font-size:20px">${esc(title)}</h1>
-        <button class="btn ghost" id="close-modal">إغلاق</button>
-      </div>
-      ${body}
-    </div>
-  `);
+  modal = `<div class="sheet"><div class="toolbar"><h1 style="font-size:20px">${esc(title)}</h1><button class="btn ghost" id="close-modal">إغلاق</button></div>${body}</div>`;
+  render();
 }
-
+function closeModal() {
+  modal = null;
+  render();
+}
 function bindModal() {
   const close = document.getElementById("close-modal");
   if (close) close.onclick = closeModal;
-  const modalEl = document.getElementById("modal");
-  if (modalEl)
-    modalEl.onclick = (e) => {
-      if (e.target.id === "modal") closeModal();
-    };
   const pf = document.getElementById("product-form");
   if (pf) pf.onsubmit = saveProduct;
   const sf = document.getElementById("sale-form");
   if (sf) {
     sf.onsubmit = saveSale;
     const addLine = document.getElementById("add-line");
-    if (addLine) addLine.onclick = () => addLineRow("sale-lines");
+    if (addLine) addLine.onclick = () => addLineRow("sale-lines", false);
   }
   const puf = document.getElementById("purchase-form");
   if (puf) {
     puf.onsubmit = savePurchase;
     const addLine = document.getElementById("add-line");
-    if (addLine) addLine.onclick = () => addLineRow("purchase-lines");
+    if (addLine) addLine.onclick = () => addLineRow("purchase-lines", true);
   }
   const cf = document.getElementById("collection-form");
   if (cf) cf.onsubmit = saveCollection;
@@ -480,32 +666,30 @@ function bindModal() {
 }
 
 function productOptions() {
-  return db.products
-    .map((p) => `<option value="${p.id}">${esc(p.name)} (${p.stock})</option>`)
-    .join("");
+  return db.products.map((p) => `<option value="${p.id}">${esc(p.name)} (${num(p.stock_qty)})</option>`).join("");
 }
-
-function addLineRow(id) {
+function addLineRow(id, cost) {
   const wrap = document.getElementById(id);
-  if (!wrap) return;
   const row = document.createElement("div");
   row.className = "line-item";
-  row.innerHTML = `
-    <select name="productId">${productOptions()}</select>
-    <input name="qty" type="number" min="0.001" step="0.001" value="1" />
-    <input name="price" type="number" min="0" step="0.01" value="0" />
-    <button type="button" class="linkish">×</button>
-  `;
+  row.innerHTML = `<select name="productId">${productOptions()}</select><input name="qty" type="number" min="0.001" step="0.001" value="1" /><input name="price" type="number" min="0" step="0.01" value="0" /><button type="button" class="linkish">×</button>`;
   const sel = row.querySelector("select");
   const price = row.querySelector('input[name="price"]');
   const fill = () => {
-    const p = productById(sel.value);
-    if (p) price.value = id === "purchase-lines" ? p.cost : p.price;
+    const p = db.products.find((x) => x.id === sel.value);
+    if (p) price.value = cost ? p.cost_price : p.sale_price;
   };
   sel.onchange = fill;
   fill();
   row.querySelector("button").onclick = () => row.remove();
   wrap.appendChild(row);
+}
+function readLines(id) {
+  return [...document.querySelectorAll(`#${id} .line-item`)].map((row) => ({
+    productId: row.querySelector("select").value,
+    qty: round(row.querySelector('input[name="qty"]').value),
+    price: round(row.querySelector('input[name="price"]').value),
+  }));
 }
 
 function productModal() {
@@ -523,28 +707,33 @@ function productModal() {
   );
 }
 
-function saveProduct(e) {
+async function saveProduct(e) {
   e.preventDefault();
   const f = e.target;
-  db.products.push({
-    id: nid(),
-    name: f.name.value.trim(),
-    sku: f.sku.value.trim(),
-    unit: f.unit.value.trim() || "قطعة",
-    cost: round(f.cost.value),
-    price: round(f.price.value),
-    stock: round(f.stock.value),
-  });
-  audit("create", "product", f.name.value.trim());
-  save();
-  closeModal();
+  try {
+    await rest("products", {
+      method: "POST",
+      body: {
+        id: nid(),
+        company_id: company.id,
+        name: f.name.value.trim(),
+        sku: f.sku.value.trim() || null,
+        unit: f.unit.value.trim() || "قطعة",
+        cost_price: round(f.cost.value),
+        sale_price: round(f.price.value),
+        stock_qty: round(f.stock.value),
+        created_by: userId,
+      },
+    });
+    await loadAll();
+    closeModal();
+  } catch (err) {
+    toast(err.message);
+  }
 }
 
 function saleModal() {
-  if (!db.products.length) {
-    alert("أضف منتجاً أولاً");
-    return;
-  }
+  if (!db.products.length) return toast("أضف منتجاً أولاً");
   sheet(
     "فاتورة بيع",
     `<form id="sale-form">
@@ -552,23 +741,15 @@ function saleModal() {
       <div class="field"><label>التاريخ</label><input name="date" type="date" value="${today()}" required /></div>
       <div id="sale-lines"></div>
       <button type="button" class="btn ghost" id="add-line" style="margin-bottom:12px">سطر</button>
-      <div class="field"><label>تحصيل الآن (اختياري)</label><input name="collected" type="number" step="0.01" min="0" value="0" /></div>
+      <div class="field"><label>تحصيل الآن</label><input name="collected" type="number" step="0.01" min="0" value="0" /></div>
       <p class="warn" id="form-error"></p>
       <button class="btn" type="submit">حفظ وخصم المخزون</button>
     </form>`,
   );
-  addLineRow("sale-lines");
+  addLineRow("sale-lines", false);
 }
 
-function readLines(id) {
-  return [...document.querySelectorAll(`#${id} .line-item`)].map((row) => ({
-    productId: row.querySelector("select").value,
-    qty: round(row.querySelector('input[name="qty"]').value),
-    price: round(row.querySelector('input[name="price"]').value),
-  }));
-}
-
-function saveSale(e) {
+async function saveSale(e) {
   e.preventDefault();
   const f = e.target;
   const err = document.getElementById("form-error");
@@ -578,64 +759,72 @@ function saveSale(e) {
     return;
   }
   for (const it of items) {
-    const p = productById(it.productId);
-    if (!p) {
-      err.textContent = "منتج غير موجود";
-      return;
-    }
-    if (p.stock + 1e-9 < it.qty) {
-      err.textContent = `المخزون لا يكفي لـ ${p.name}`;
+    const p = db.products.find((x) => x.id === it.productId);
+    if (!p || num(p.stock_qty) + 1e-9 < it.qty) {
+      err.textContent = `المخزون لا يكفي`;
       return;
     }
   }
   const total = round(items.reduce((s, it) => s + it.qty * it.price, 0));
   const id = nid();
-  const invoice = `S-${String(db.seqSale++).padStart(4, "0")}`;
-  items.forEach((it) => {
-    const p = productById(it.productId);
-    p.stock = round(p.stock - it.qty);
-  });
-  db.sales.unshift({
-    id,
-    invoice,
-    customer: f.customer.value.trim(),
-    date: f.date.value,
-    total,
-    items,
-  });
-  const collected = round(f.collected.value);
-  if (collected > 0) {
-    db.collections.unshift({
-      id: nid(),
-      saleId: id,
-      customer: f.customer.value.trim(),
-      amount: Math.min(collected, total),
-      date: f.date.value,
+  const n = db.sales.length + 1;
+  const invoice = `S-${String(n).padStart(4, "0")}`;
+  try {
+    await rest("sales", {
+      method: "POST",
+      body: {
+        id,
+        company_id: company.id,
+        invoice_number: invoice,
+        customer_name: f.customer.value.trim(),
+        sale_date: f.date.value,
+        total,
+        created_by: userId,
+      },
     });
+    for (const it of items) {
+      const p = db.products.find((x) => x.id === it.productId);
+      await rest("sale_items", {
+        method: "POST",
+        body: {
+          id: nid(),
+          sale_id: id,
+          product_id: it.productId,
+          product_name: p.name,
+          qty: it.qty,
+          unit_price: it.price,
+        },
+      });
+      await rest("products", {
+        method: "PATCH",
+        query: `id=eq.${p.id}`,
+        body: { stock_qty: round(num(p.stock_qty) - it.qty) },
+      });
+    }
+    const collected = round(f.collected.value);
+    if (collected > 0) {
+      await rest("collections", {
+        method: "POST",
+        body: {
+          id: nid(),
+          company_id: company.id,
+          sale_id: id,
+          customer_name: f.customer.value.trim(),
+          amount: Math.min(collected, total),
+          collected_at: f.date.value,
+          created_by: userId,
+        },
+      });
+    }
+    await loadAll();
+    closeModal();
+  } catch (ex) {
+    err.textContent = ex.message;
   }
-  audit("create", "sale", invoice);
-  save();
-  closeModal();
-}
-
-function deleteSale(id) {
-  const s = db.sales.find((x) => x.id === id);
-  if (!s) return;
-  (s.items || []).forEach((it) => {
-    const p = productById(it.productId);
-    if (p) p.stock = round(p.stock + Number(it.qty));
-  });
-  db.sales = db.sales.filter((x) => x.id !== id);
-  db.collections = db.collections.filter((c) => c.saleId !== id);
-  save();
-  render();
 }
 
 function purchaseModal() {
-  if (!db.products.length) {
-    alert("أضف منتجاً أولاً");
-    return;
-  }
+  if (!db.products.length) return toast("أضف منتجاً أولاً");
   sheet(
     "فاتورة شراء",
     `<form id="purchase-form">
@@ -648,10 +837,10 @@ function purchaseModal() {
       <button class="btn" type="submit">حفظ وزيادة المخزون</button>
     </form>`,
   );
-  addLineRow("purchase-lines");
+  addLineRow("purchase-lines", true);
 }
 
-function savePurchase(e) {
+async function savePurchase(e) {
   e.preventDefault();
   const f = e.target;
   const err = document.getElementById("form-error");
@@ -662,47 +851,58 @@ function savePurchase(e) {
   }
   const total = round(items.reduce((s, it) => s + it.qty * it.price, 0));
   const id = nid();
-  const invoice = `P-${String(db.seqPurchase++).padStart(4, "0")}`;
-  items.forEach((it) => {
-    const p = productById(it.productId);
-    if (p) p.stock = round(p.stock + it.qty);
-  });
-  db.purchases.unshift({
-    id,
-    invoice,
-    supplier: f.supplier.value.trim(),
-    date: f.date.value,
-    total,
-    paidAmount: round(f.paid.value),
-    items,
-  });
-  audit("create", "purchase", invoice);
-  save();
-  closeModal();
-}
-
-function deletePurchase(id) {
-  const p = db.purchases.find((x) => x.id === id);
-  if (!p) return;
-  (p.items || []).forEach((it) => {
-    const prod = productById(it.productId);
-    if (prod) prod.stock = round(Math.max(0, prod.stock - Number(it.qty)));
-  });
-  db.purchases = db.purchases.filter((x) => x.id !== id);
-  save();
-  render();
+  const invoice = `P-${String(db.purchases.length + 1).padStart(4, "0")}`;
+  try {
+    await rest("purchases", {
+      method: "POST",
+      body: {
+        id,
+        company_id: company.id,
+        invoice_number: invoice,
+        supplier_name: f.supplier.value.trim(),
+        purchase_date: f.date.value,
+        total,
+        paid_amount: round(f.paid.value),
+        created_by: userId,
+      },
+    });
+    for (const it of items) {
+      const p = db.products.find((x) => x.id === it.productId);
+      await rest("purchase_items", {
+        method: "POST",
+        body: {
+          id: nid(),
+          purchase_id: id,
+          product_id: it.productId,
+          product_name: p ? p.name : "",
+          qty: it.qty,
+          unit_cost: it.price,
+        },
+      });
+      if (p) {
+        await rest("products", {
+          method: "PATCH",
+          query: `id=eq.${p.id}`,
+          body: { stock_qty: round(num(p.stock_qty) + it.qty) },
+        });
+      }
+    }
+    await loadAll();
+    closeModal();
+  } catch (ex) {
+    err.textContent = ex.message;
+  }
 }
 
 function collectionModal() {
-  const openSales = db.sales.filter((s) => saleCollected(s.id) < s.total - 0.001);
+  const openSales = db.sales.filter((s) => saleCollected(s.id) < num(s.total) - 0.001);
   sheet(
     "تحصيل",
     `<form id="collection-form">
       <div class="field"><label>العميل</label><input name="customer" required /></div>
-      <div class="field"><label>فاتورة (اختياري)</label>
-        <select name="saleId">
-          <option value="">بدون فاتورة</option>
-          ${openSales.map((s) => `<option value="${s.id}">${esc(s.invoice)} · ${esc(s.customer)}</option>`).join("")}
+      <div class="field"><label>فاتورة</label>
+        <select name="saleId"><option value="">بدون فاتورة</option>
+        ${openSales.map((s) => `<option value="${s.id}">${esc(s.invoice_number)} · ${esc(s.customer_name)}</option>`).join("")}
         </select>
       </div>
       <div class="field"><label>المبلغ</label><input name="amount" type="number" min="0.01" step="0.01" required /></div>
@@ -712,32 +912,40 @@ function collectionModal() {
   );
 }
 
-function saveCollection(e) {
+async function saveCollection(e) {
   e.preventDefault();
   const f = e.target;
   let customer = f.customer.value.trim();
   const saleId = f.saleId.value || null;
   if (saleId) {
     const s = db.sales.find((x) => x.id === saleId);
-    if (s && !customer) customer = s.customer;
+    if (s && !customer) customer = s.customer_name;
   }
-  db.collections.unshift({
-    id: nid(),
-    saleId,
-    customer,
-    amount: round(f.amount.value),
-    date: f.date.value,
-  });
-  audit("create", "collection", customer);
-  save();
-  closeModal();
+  try {
+    await rest("collections", {
+      method: "POST",
+      body: {
+        id: nid(),
+        company_id: company.id,
+        sale_id: saleId,
+        customer_name: customer,
+        amount: round(f.amount.value),
+        collected_at: f.date.value,
+        created_by: userId,
+      },
+    });
+    await loadAll();
+    closeModal();
+  } catch (err) {
+    toast(err.message);
+  }
 }
 
 function expenseModal() {
   sheet(
     "مصروف",
     `<form id="expense-form">
-      <div class="field"><label>التصنيف</label><input name="category" required placeholder="إيجار، كهرباء، نقل..." /></div>
+      <div class="field"><label>التصنيف</label><input name="category" required /></div>
       <div class="field"><label>المبلغ</label><input name="amount" type="number" min="0.01" step="0.01" required /></div>
       <div class="field"><label>التاريخ</label><input name="date" type="date" value="${today()}" required /></div>
       <div class="field"><label>ملاحظة</label><input name="note" /></div>
@@ -746,19 +954,34 @@ function expenseModal() {
   );
 }
 
-function saveExpense(e) {
+async function saveExpense(e) {
   e.preventDefault();
   const f = e.target;
-  db.expenses.unshift({
-    id: nid(),
-    category: f.category.value.trim(),
-    amount: round(f.amount.value),
-    date: f.date.value,
-    note: f.note.value.trim(),
-  });
-  audit("create", "expense", f.category.value.trim());
-  save();
-  closeModal();
+  try {
+    await rest("expenses", {
+      method: "POST",
+      body: {
+        id: nid(),
+        company_id: company.id,
+        category: f.category.value.trim(),
+        amount: round(f.amount.value),
+        expense_date: f.date.value,
+        description: f.note.value.trim() || null,
+        created_by: userId,
+      },
+    });
+    await loadAll();
+    closeModal();
+  } catch (err) {
+    toast(err.message);
+  }
 }
 
-render();
+boot();
+setInterval(() => {
+  if (configured() && company && !modal) {
+    loadAll()
+      .then(() => render())
+      .catch(() => {});
+  }
+}, 4000);

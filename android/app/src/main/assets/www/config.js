@@ -1,0 +1,4 @@
+window.MC = {
+  url: "",
+  anon: "",
+};
