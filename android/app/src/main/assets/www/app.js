@@ -95,14 +95,27 @@ function deviceCreds() {
   return c;
 }
 
+function friendlyErr(raw) {
+  const s = String(raw || "");
+  if (/PGRST205|PGRST202|schema cache|create_company/i.test(s))
+    return "الجداول لسه ما اتنفذت. افتح SQL Editor في Supabase والصق ملف schema.sql ثم Run.";
+  if (/confirm|email not confirmed|Email not confirmed/i.test(s))
+    return "أوقف Confirm email من Authentication → Providers → Email في Supabase.";
+  return s || "حصل خطأ";
+}
+
 async function authFetch(path, body) {
   const res = await fetch(`${sbUrl()}/auth/v1/${path}`, {
     method: "POST",
-    headers: { apikey: sbAnon(), "Content-Type": "application/json" },
+    headers: {
+      apikey: sbAnon(),
+      Authorization: "Bearer " + sbAnon(),
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error_description || data.msg || data.error || "فشل الدخول");
+  if (!res.ok) throw new Error(friendlyErr(data.error_description || data.msg || data.error || "فشل الدخول"));
   return data;
 }
 
@@ -127,11 +140,9 @@ async function ensureSession() {
     setSession(signed.access_token, signed.user.id);
     return;
   }
-  const data = await authFetch("token?grant_type=password", {
-    email: creds.email,
-    password: creds.password,
-  });
-  setSession(data.access_token, data.user.id);
+  throw new Error(
+    "أوقف Confirm email من Authentication → Providers → Email في Supabase ثم أعد فتح التطبيق.",
+  );
 }
 
 async function rest(path, { method = "GET", body, query } = {}) {
@@ -156,7 +167,7 @@ async function rest(path, { method = "GET", body, query } = {}) {
   }
   if (!res.ok) {
     const msg = (data && (data.message || data.error || data.hint)) || text || "خطأ في السيرفر";
-    throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+    throw new Error(friendlyErr(typeof msg === "string" ? msg : JSON.stringify(msg)));
   }
   return data;
 }

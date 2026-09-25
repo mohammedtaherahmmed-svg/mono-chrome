@@ -1,14 +1,14 @@
 # Mono Chrome — دفتر الشركة
 
-منتجات، مبيعات، مشتريات، تحصيلات، مصاريف، وصافي الصندوق بالجنيه المصري.
+البيانات المشتركة على Supabase. المدير يعدّل، والمشاهد يرى نفس الأرقام.
 
-البيانات المشتركة بين الموظفين على **Supabase** (من غير رابط نشر Grok).
+## APK
 
-## إعداد السيرفر مرة واحدة
+**[Releases → Mono Chrome — APK](https://github.com/mohammedtaherahmmed-svg/mono-chrome/releases/latest)**
 
-1. اعمل حساب مجاني على [supabase.com](https://supabase.com) → **New project**
-2. Authentication → Providers → Email → أوقف **Confirm email**
-3. SQL Editor → الصق محتوى `supabase/schema.sql` → **Run**
-4. Settings → API → انسخ **Project URL** و **anon public** وابعتهما في الشات
+قبل أول استخدام مرة واحدة في Supabase:
 
-بعد الربط نبني APK يفتح الدفتر مباشرة. المدير ينشئ الشركة، والموظف يدخل بكود الدعوة. أي منتج أو مبيعة تظهر عند الكل.
+1. Authentication → Providers → Email → أوقف **Confirm email**
+2. SQL Editor → الصق [supabase/schema.sql](https://github.com/mohammedtaherahmmed-svg/mono-chrome/blob/main/supabase/schema.sql) → **Run**
+
+ثم افتح التطبيق: أنشئ الشركة كمدير، وادعُ الموظفين بكود الدعوة.
