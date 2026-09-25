@@ -1,4 +1,4 @@
--- Mono Chrome — paste this once in Supabase → SQL Editor → Run
+-- Mono Chrome — paste this once in Supabase SQL Editor, then Run
 create extension if not exists pgcrypto;
 
 create table if not exists companies (
@@ -101,9 +101,9 @@ language sql
 stable
 security definer
 set search_path = public
-as $$
+as $mc$
   select company_id from company_members where user_id = auth.uid()::text;
-$$;
+$mc$;
 
 create or replace function is_manager(cid text)
 returns boolean
@@ -111,19 +111,19 @@ language sql
 stable
 security definer
 set search_path = public
-as $$
+as $mc$
   select exists (
     select 1 from company_members
     where company_id = cid and user_id = auth.uid()::text and role = 'manager'
   );
-$$;
+$mc$;
 
 create or replace function create_company(p_name text, p_display text)
 returns jsonb
 language plpgsql
 security definer
 set search_path = public
-as $$
+as $mc$
 declare
   v_uid text := auth.uid()::text;
   v_id text := gen_random_uuid()::text;
@@ -147,14 +147,14 @@ begin
     'id', v_id, 'name', v_name, 'inviteCode', v_code, 'role', 'manager'
   );
 end;
-$$;
+$mc$;
 
 create or replace function join_company(p_code text, p_display text)
 returns jsonb
 language plpgsql
 security definer
 set search_path = public
-as $$
+as $mc$
 declare
   v_uid text := auth.uid()::text;
   v_display text := coalesce(nullif(trim(p_display), ''), 'عضو');
@@ -169,10 +169,10 @@ begin
   insert into company_members (id, company_id, user_id, role, display_name)
     values (gen_random_uuid()::text, v_co.id, v_uid, 'viewer', v_display);
   return jsonb_build_object(
-    'id' , v_co.id, 'name', v_co.name, 'inviteCode', v_co.invite_code, 'role', 'viewer'
+    'id', v_co.id, 'name', v_co.name, 'inviteCode', v_co.invite_code, 'role', 'viewer'
   );
 end;
-$$;
+$mc$;
 
 drop policy if exists companies_select on companies;
 drop policy if exists companies_update on companies;
@@ -213,26 +213,16 @@ alter table purchase_items enable row level security;
 alter table collections enable row level security;
 alter table expenses enable row level security;
 
-drop policy if exists companies_select on companies;
 create policy companies_select on companies for select using (id in (select my_company_ids()));
-
-drop policy if exists members_select on company_members;
 create policy members_select on company_members for select using (company_id in (select my_company_ids()));
-drop policy if exists members_update on company_members;
 create policy members_update on company_members for update using (is_manager(company_id));
-
-drop policy if exists products_all on products;
 create policy products_select on products for select using (company_id in (select my_company_ids()));
 create policy products_write on products for insert with check (is_manager(company_id));
 create policy products_update on products for update using (is_manager(company_id));
 create policy products_delete on products for delete using (is_manager(company_id));
-
-drop policy if exists sales_select on sales;
 create policy sales_select on sales for select using (company_id in (select my_company_ids()));
 create policy sales_write on sales for insert with check (is_manager(company_id));
 create policy sales_delete on sales for delete using (is_manager(company_id));
-
-drop policy if exists sale_items_select on sale_items;
 create policy sale_items_select on sale_items for select using (
   sale_id in (select id from sales where company_id in (select my_company_ids()))
 );
@@ -242,14 +232,10 @@ create policy sale_items_write on sale_items for insert with check (
 create policy sale_items_delete on sale_items for delete using (
   sale_id in (select id from sales where is_manager(company_id))
 );
-
-drop policy if exists purchases_select on purchases;
 create policy purchases_select on purchases for select using (company_id in (select my_company_ids()));
 create policy purchases_write on purchases for insert with check (is_manager(company_id));
 create policy purchases_update on purchases for update using (is_manager(company_id));
 create policy purchases_delete on purchases for delete using (is_manager(company_id));
-
-drop policy if exists purchase_items_select on purchase_items;
 create policy purchase_items_select on purchase_items for select using (
   purchase_id in (select id from purchases where company_id in (select my_company_ids()))
 );
@@ -259,18 +245,12 @@ create policy purchase_items_write on purchase_items for insert with check (
 create policy purchase_items_delete on purchase_items for delete using (
   purchase_id in (select id from purchases where is_manager(company_id))
 );
-
-drop policy if exists collections_select on collections;
 create policy collections_select on collections for select using (company_id in (select my_company_ids()));
 create policy collections_write on collections for insert with check (is_manager(company_id));
 create policy collections_delete on collections for delete using (is_manager(company_id));
-
-drop policy if exists expenses_select on expenses;
 create policy expenses_select on expenses for select using (company_id in (select my_company_ids()));
 create policy expenses_write on expenses for insert with check (is_manager(company_id));
 create policy expenses_delete on expenses for delete using (is_manager(company_id));
-
-drop policy if exists companies_update on companies;
 create policy companies_update on companies for update using (is_manager(id));
 
 grant usage on schema public to anon, authenticated;
