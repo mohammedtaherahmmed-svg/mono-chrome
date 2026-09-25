@@ -1,4 +1,4 @@
--- Mono Chrome — paste this once in Supabase SQL Editor, then Run
+-- Mono Chrome schema. Copy from this file, not from chat.
 create extension if not exists pgcrypto;
 
 create table if not exists companies (
@@ -101,9 +101,9 @@ language sql
 stable
 security definer
 set search_path = public
-as $mc$
+as '
   select company_id from company_members where user_id = auth.uid()::text;
-$mc$;
+';
 
 create or replace function is_manager(cid text)
 returns boolean
@@ -111,68 +111,68 @@ language sql
 stable
 security definer
 set search_path = public
-as $mc$
+as '
   select exists (
     select 1 from company_members
-    where company_id = cid and user_id = auth.uid()::text and role = 'manager'
+    where company_id = cid and user_id = auth.uid()::text and role = ''manager''
   );
-$mc$;
+';
 
 create or replace function create_company(p_name text, p_display text)
 returns jsonb
 language plpgsql
 security definer
 set search_path = public
-as $mc$
+as '
 declare
   v_uid text := auth.uid()::text;
   v_id text := gen_random_uuid()::text;
   v_code text;
-  v_name text := coalesce(nullif(trim(p_name), ''), 'Mono Chrome');
-  v_display text := coalesce(nullif(trim(p_display), ''), 'مدير');
+  v_name text := coalesce(nullif(trim(p_name), ''''), ''Mono Chrome'');
+  v_display text := coalesce(nullif(trim(p_display), ''''), ''manager'');
 begin
-  if v_uid is null then raise exception 'Unauthorized'; end if;
+  if v_uid is null then raise exception ''Unauthorized''; end if;
   if exists (select 1 from company_members where user_id = v_uid) then
-    raise exception 'أنت بالفعل عضو في شركة';
+    raise exception ''already a member'';
   end if;
   loop
-    v_code := upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 6));
+    v_code := upper(substr(replace(gen_random_uuid()::text, ''-'', ''''), 1, 6));
     exit when not exists (select 1 from companies where invite_code = v_code);
   end loop;
   insert into companies (id, name, invite_code, created_by)
     values (v_id, v_name, v_code, v_uid);
   insert into company_members (id, company_id, user_id, role, display_name)
-    values (gen_random_uuid()::text, v_id, v_uid, 'manager', v_display);
+    values (gen_random_uuid()::text, v_id, v_uid, ''manager'', v_display);
   return jsonb_build_object(
-    'id', v_id, 'name', v_name, 'inviteCode', v_code, 'role', 'manager'
+    ''id'', v_id, ''name'', v_name, ''inviteCode'', v_code, ''role'', ''manager''
   );
 end;
-$mc$;
+';
 
 create or replace function join_company(p_code text, p_display text)
 returns jsonb
 language plpgsql
 security definer
 set search_path = public
-as $mc$
+as '
 declare
   v_uid text := auth.uid()::text;
-  v_display text := coalesce(nullif(trim(p_display), ''), 'عضو');
+  v_display text := coalesce(nullif(trim(p_display), ''''), ''member'');
   v_co companies%rowtype;
 begin
-  if v_uid is null then raise exception 'Unauthorized'; end if;
+  if v_uid is null then raise exception ''Unauthorized''; end if;
   if exists (select 1 from company_members where user_id = v_uid) then
-    raise exception 'أنت بالفعل عضو في شركة';
+    raise exception ''already a member'';
   end if;
   select * into v_co from companies where invite_code = upper(trim(p_code));
-  if not found then raise exception 'كود الدعوة غير صحيح'; end if;
+  if not found then raise exception ''invalid invite code''; end if;
   insert into company_members (id, company_id, user_id, role, display_name)
-    values (gen_random_uuid()::text, v_co.id, v_uid, 'viewer', v_display);
+    values (gen_random_uuid()::text, v_co.id, v_uid, ''viewer'', v_display);
   return jsonb_build_object(
-    'id', v_co.id, 'name', v_co.name, 'inviteCode', v_co.invite_code, 'role', 'viewer'
+    ''id'', v_co.id, ''name'', v_co.name, ''inviteCode'', v_co.invite_code, ''role'', ''viewer''
   );
 end;
-$mc$;
+';
 
 drop policy if exists companies_select on companies;
 drop policy if exists companies_update on companies;
