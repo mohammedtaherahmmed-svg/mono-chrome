@@ -106,7 +106,7 @@ function friendlyErr(raw) {
 
 async function authFetch(path, body) {
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 15000);
+  const t = setTimeout(() => ctrl.abort(), 8000);
   let res;
   try {
     res = await fetch(`${sbUrl()}/auth/v1/${path}`, {
@@ -159,7 +159,7 @@ async function rest(path, { method = "GET", body, query } = {}) {
   let url = `${sbUrl()}/rest/v1/${path}`;
   if (query) url += query.startsWith("?") ? query : `?${query}`;
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 15000);
+  const t = setTimeout(() => ctrl.abort(), 8000);
   let res;
   try {
     res = await fetch(url, {
@@ -273,13 +273,22 @@ async function boot() {
   loading = true;
   errMsg = "";
   render();
+  const watchdog = setTimeout(() => {
+    if (!loading) return;
+    errMsg =
+      "السيرفر مش راد. افتح supabase.com → المشروع → Restore إذا كان متوقف، أو ابعت Project URL جديد.";
+    loading = false;
+    render();
+  }, 8000);
   try {
     await ensureSession();
     await loadCompany();
     if (company) await loadAll();
+    errMsg = errMsg && !company ? errMsg : "";
   } catch (e) {
     errMsg = e.message || String(e);
   }
+  clearTimeout(watchdog);
   loading = false;
   render();
 }
@@ -297,7 +306,12 @@ function render() {
     return;
   }
   if (loading && !company) {
-    root.innerHTML = `<div class="boot"><p class="eyebrow">MONO CHROME</p><h1>جاري الاتصال</h1></div>`;
+    root.innerHTML = `
+      <div class="boot">
+        <p class="eyebrow">MONO CHROME</p>
+        <h1>جاري الاتصال</h1>
+        <p class="lede">بنوصل دفتر الشركة على السيرفر… لو وقفت هنا المشروع يكون متوقف في Supabase.</p>
+      </div>`;
     return;
   }
   if (!company) {
@@ -306,7 +320,7 @@ function render() {
         <p class="eyebrow">MONO CHROME</p>
         <h1>دفتر الشركة</h1>
         <p class="lede">البيانات على السيرفر. المدير ينشئ الشركة، والموظف يدخل بكود الدعوة.</p>
-        ${errMsg ? `<p class="warn">${esc(errMsg)}</p>` : ""}
+        ${errMsg ? `<p class="warn">${esc(errMsg)}</p><button class="btn ghost" id="retry-boot" type="button">إعادة المحاولة</button>` : ""}
         <form id="create-form">
           <div class="field"><label>اسم الشركة</label><input name="name" required placeholder="Mono Chrome" /></div>
           <div class="field"><label>اسمك</label><input name="display" value="مدير" /></div>
@@ -351,6 +365,8 @@ function render() {
         toast(err.message);
       }
     };
+    const retry = document.getElementById("retry-boot");
+    if (retry) retry.onclick = () => boot();
     return;
   }
 
