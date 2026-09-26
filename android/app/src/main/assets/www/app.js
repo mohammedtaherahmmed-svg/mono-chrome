@@ -105,15 +105,25 @@ function friendlyErr(raw) {
 }
 
 async function authFetch(path, body) {
-  const res = await fetch(`${sbUrl()}/auth/v1/${path}`, {
-    method: "POST",
-    headers: {
-      apikey: sbAnon(),
-      Authorization: "Bearer " + sbAnon(),
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 15000);
+  let res;
+  try {
+    res = await fetch(`${sbUrl()}/auth/v1/${path}`, {
+      method: "POST",
+      signal: ctrl.signal,
+      headers: {
+        apikey: sbAnon(),
+        Authorization: "Bearer " + sbAnon(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    throw new Error("تعذر الاتصال بالسيرفر. تأكد من الإنترنت وأن مشروع Supabase شغال.");
+  } finally {
+    clearTimeout(t);
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(friendlyErr(data.error_description || data.msg || data.error || "فشل الدخول"));
   return data;
@@ -148,16 +158,26 @@ async function ensureSession() {
 async function rest(path, { method = "GET", body, query } = {}) {
   let url = `${sbUrl()}/rest/v1/${path}`;
   if (query) url += query.startsWith("?") ? query : `?${query}`;
-  const res = await fetch(url, {
-    method,
-    headers: {
-      apikey: sbAnon(),
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      Prefer: "return=representation",
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 15000);
+  let res;
+  try {
+    res = await fetch(url, {
+      method,
+      signal: ctrl.signal,
+      headers: {
+        apikey: sbAnon(),
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (e) {
+    clearTimeout(t);
+    throw new Error("تعذر الاتصال بالسيرفر. تأكد من الإنترنت وأن مشروع Supabase شغال.");
+  }
+  clearTimeout(t);
   const text = await res.text();
   let data = null;
   try {
@@ -564,9 +584,8 @@ function bindPage() {
   if (rot)
     rot.onclick = async () => {
       try {
-        const code = nid().replace(/-/g, "").slice(0, 6).toUpperCase();
-        await rest("companies", { method: "PATCH", query: `id=eq.${company.id}`, body: { invite_code: code } });
-        company.inviteCode = code;
+        const out = await rpc("rotate_invite", {});
+        company.inviteCode = out.inviteCode || out.invite_code;
         setCompany(company);
         render();
       } catch (e) {
