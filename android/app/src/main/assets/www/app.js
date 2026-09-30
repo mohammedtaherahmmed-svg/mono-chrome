@@ -26,10 +26,10 @@ function round(n) {
 }
 function esc(s) {
   return String(s ?? "")
-    .replace(/&/g, "&")
-    .replace(/</g, "<")
-    .replace(/>/g, ">")
-    .replace(/"/g, """);
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 function num(v) {
   const n = parseFloat(String(v ?? 0));
@@ -1023,7 +1023,12 @@ async function saveExpense(e) {
   }
 }
 
-boot();
+try {
+  boot();
+} catch (e) {
+  var el = document.getElementById("app");
+  if (el) el.innerHTML = '<div class="boot"><p class="eyebrow">MONO CHROME</p><h1>تعذر فتح الدفتر</h1><p class="lede">' + String(e && e.message ? e.message : e) + "</p></div>";
+}
 setInterval(() => {
   if (configured() && company && !modal) {
     loadAll()
