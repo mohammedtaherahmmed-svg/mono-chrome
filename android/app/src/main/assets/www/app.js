@@ -155,7 +155,112 @@ async function ensureSession() {
   );
 }
 
-async function rest(path, { method = "GET", body, query } = {}) {
+const isLocal = () => Boolean(window.MC && window.MC.local);
+
+function emptyStore() {
+  return {
+    products: [],
+    sales: [],
+    sale_items: [],
+    purchases: [],
+    purchase_items: [],
+    collections: [],
+    expenses: [],
+    company_members: [],
+    companies: [],
+  };
+}
+
+function readStore() {
+  try {
+    const raw = JSON.parse(localStorage.getItem("mc-ledger") || "null");
+    return raw && typeof raw === "object" ? { ...emptyStore(), ...raw } : emptyStore();
+  } catch {
+    return emptyStore();
+  }
+}
+
+function writeStore(store) {
+  localStorage.setItem("mc-ledger", JSON.stringify(store));
+}
+
+function openLocal() {
+  const store = readStore();
+  if (!store.companies.length) {
+    const id = "local-company";
+    store.companies.push({ id, name: "دفتر الشركة", invite_code: "" });
+    store.company_members.push({
+      id: "local-manager",
+      company_id: id,
+      user_id: "local",
+      role: "manager",
+      display_name: "مدير",
+    });
+    writeStore(store);
+  }
+  const c = store.companies[0];
+  const m = store.company_members.find((x) => x.company_id === c.id) || store.company_members[0];
+  userId = "local";
+  setCompany({ id: c.id, name: c.name, inviteCode: "", role: (m && m.role) || "manager" });
+}
+
+function applyQuery(rows, query) {
+  let out = (rows || []).slice();
+  if (!query) return out;
+  for (const part of String(query).replace(/^\?/, "").split("&")) {
+    const eq = part.indexOf("=");
+    if (eq < 0) continue;
+    const key = decodeURIComponent(part.slice(0, eq));
+    const val = decodeURIComponent(part.slice(eq + 1));
+    if (key === "select" || key === "limit") continue;
+    if (key === "order") {
+      const dot = val.lastIndexOf(".");
+      const field = dot > 0 ? val.slice(0, dot) : val;
+      const dir = dot > 0 ? val.slice(dot + 1) : "asc";
+      out.sort((a, b) => {
+        const av = a[field] == null ? "" : a[field];
+        const bv = b[field] == null ? "" : b[field];
+        if (av < bv) return dir === "desc" ? 1 : -1;
+        if (av > bv) return dir === "desc" ? -1 : 1;
+        return 0;
+      });
+      continue;
+    }
+    if (val.startsWith("eq.")) out = out.filter((row) => String(row[key]) === val.slice(3));
+  }
+  return out;
+}
+
+function localRest(path, { method = "GET", body, query } = {}) {
+  const table = String(path || "").split("?")[0].replace(/^\/+/, "");
+  const store = readStore();
+  const rows = store[table] || [];
+  if (method === "GET") return applyQuery(rows, query);
+  if (method === "POST") {
+    rows.push(body || {});
+    store[table] = rows;
+    writeStore(store);
+    return [body];
+  }
+  if (method === "PATCH") {
+    const matched = applyQuery(rows, query);
+    for (const row of matched) Object.assign(row, body || {});
+    store[table] = rows;
+    writeStore(store);
+    return matched;
+  }
+  if (method === "DELETE") {
+    const doomed = new Set(applyQuery(rows, query));
+    store[table] = rows.filter((row) => !doomed.has(row));
+    writeStore(store);
+    return [];
+  }
+  return [];
+}
+
+async function rest(path, opts = {}) {
+  if (isLocal()) return localRest(path, opts);
+  const { method = "GET", body, query } = opts;
   let url = `${sbUrl()}/rest/v1/${path}`;
   if (query) url += query.startsWith("?") ? query : `?${query}`;
   const ctrl = new AbortController();
@@ -266,6 +371,14 @@ function toast(msg) {
 }
 
 async function boot() {
+  if (isLocal()) {
+    openLocal();
+    await loadAll();
+    loading = false;
+    errMsg = "";
+    render();
+    return;
+  }
   if (!configured()) {
     render();
     return;
@@ -558,12 +671,16 @@ function moreHtml() {
       <li><button class="linkish" data-go="collections" style="color:inherit;font-size:16px;font-weight:600">التحصيلات</button></li>
       <li><button class="linkish" data-go="expenses" style="color:inherit;font-size:16px;font-weight:600">المصاريف</button></li>
     </ul>
-    <article class="card">
+    ${
+      company.inviteCode
+        ? `<article class="card">
       <h2>كود الدعوة</h2>
       <p class="value" style="font-size:28px;margin:8px 0">${esc(company.inviteCode || "")}</p>
       <p class="lede">ابعت الكود للموظف. يسجّل دخول وينضم كمشاهد.</p>
       ${canEdit() ? `<button class="btn ghost" id="rotate-code">تغيير الكود</button>` : ""}
-    </article>
+    </article>`
+        : `<article class="card"><p class="lede">الدفتر على هذا الموبايل. أضف المنتجات والمبيعات من غير أي رابط.</p></article>`
+    }
     <article class="card">
       <h2>الفريق</h2>
       <ul class="list" style="margin:0;box-shadow:none">${db.members

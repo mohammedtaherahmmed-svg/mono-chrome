@@ -68,27 +68,24 @@ jobs:
           mkdir -p dist
           SRC=$(find android/app/build/outputs/apk -name "*.apk" | head -n 1)
           test -n "$SRC"
-          cp "$SRC" dist/MonoChrome.apk
-          ls -lh dist/MonoChrome.apk
+          cp "$SRC" dist/Daftar.apk
+          ls -lh dist/Daftar.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: MonoChrome-APK
-          path: dist/MonoChrome.apk
+          path: dist/Daftar.apk
           if-no-files-found: error
 
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: apk-latest
-          name: Mono Chrome — APK
+          name: دفتر الصندوق — APK
           body: |
-            حمّل **MonoChrome.apk** وثبّته على الأندرويد.
+            ثبّت **Daftar.apk**. التطبيق يفتح مباشرة بدون أي رابط.
 
-            1. نزّل الملف من المرفقات تحت.
-            2. على الموبايل: اسمح بالتثبيت من مصدر غير معروف إن طُلب.
-            3. افتح **Mono Chrome** — يفتح دفتر الشركة على السيرفر مباشرة.
-
-            السيرفر: https://brook-meadow-aurora-sail.grok.me
-            أي إضافة منتج أو مبيعة تظهر عند باقي الموظفين بعد تسجيل الدخول لنفس الشركة.
-          files: dist/MonoChrome.apk
+            1. امسح أي نسخة قديمة اسمها Mono Chrome.
+            2. نزّل Daftar.apk وثبّته.
+            3. الأيقونة اسمها **دفتر الصندوق**.
+          files: dist/Daftar.apk
           make_latest: true
